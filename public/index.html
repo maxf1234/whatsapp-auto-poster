@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Auto Poster</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⏰</text></svg>" />
+  <style>
+    :root {
+      --bg: #f4f5f7; --card: #fff; --text: #16181d; --muted: #6b7280; --line: #e3e5e9;
+      --accent: #128c5e; --accent-ink: #fff; --ok: #0a7d38; --err: #b42318; --warn: #a15c00;
+      --chat-bg: #efeae2; --bubble: #fff; --pro: #6d28d9;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0f1115; --card: #181b21; --text: #e9eaee; --muted: #9aa0ab; --line: #2a2e36;
+        --accent: #25b37a; --accent-ink: #04140d; --ok: #3ccf7f; --err: #ff7a6b; --warn: #f0b44c;
+        --chat-bg: #0b141a; --bubble: #202c33; --pro: #a78bfa;
+      }
+    }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    body { margin: 0; background: var(--bg); color: var(--text);
+      font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    a { color: var(--accent); }
+    header { padding: 14px 16px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+      max-width: 1100px; margin: 0 auto; }
+    header h1 { font-size: 18px; margin: 0; }
+    header h1 a { color: inherit; text-decoration: none; }
+    header nav { margin-left: auto; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+    header nav a, header nav button { font-size: 14px; color: var(--text); text-decoration: none; border: 1px solid var(--line);
+      background: transparent; border-radius: 999px; padding: 5px 12px; font-family: inherit; cursor: pointer; }
+    header nav a[aria-current="page"] { background: var(--card); }
+    .pill { font-size: 12px; color: var(--muted); }
+    .badge { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; border-radius: 6px;
+      padding: 2px 7px; border: 1px solid currentColor; color: var(--muted); }
+    .badge.pro { color: var(--pro); }
+    main { display: grid; gap: 16px; padding: 0 16px 40px; max-width: 1100px; margin: 0 auto;
+      grid-template-columns: minmax(0, 1fr); }
+    @media (min-width: 900px) { main.dash { grid-template-columns: minmax(0, 1fr) 380px; } }
+    .stack { display: grid; gap: 16px; align-content: start; min-width: 0; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; min-width: 0; }
+    h2 { font-size: 14px; margin: 0 0 10px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+    h2 .right { float: right; text-transform: none; letter-spacing: 0; font-weight: 400; }
+    label { display: block; font-size: 13px; color: var(--muted); margin: 12px 0 4px; }
+    input[type=text], input[type=email], input[type=password], input[type=number], input[type=datetime-local], textarea, select {
+      width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line);
+      background: var(--bg); color: var(--text); font: inherit; }
+    select.inline, input.inline { width: auto; padding: 7px 8px; font-size: 14px; }
+    textarea { min-height: 130px; resize: vertical; }
+    .tools { display: flex; gap: 4px; margin-bottom: 6px; }
+    .tools button { border: 1px solid var(--line); background: transparent; color: var(--text); border-radius: 8px;
+      width: 34px; height: 30px; font: inherit; cursor: pointer; }
+    .drop { border: 2px dashed var(--line); border-radius: 12px; padding: 14px; text-align: center;
+      color: var(--muted); cursor: pointer; position: relative; margin-top: 12px; }
+    .drop.over { border-color: var(--accent); }
+    .drop input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+    .drop img { max-width: 100%; max-height: 200px; border-radius: 8px; display: block; margin: 0 auto 8px; }
+    .row { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; align-items: center; }
+    .btn { border: 0; border-radius: 10px; padding: 11px 18px; font: inherit; font-weight: 600; cursor: pointer; }
+    .btn.primary { background: var(--accent); color: var(--accent-ink); }
+    .btn.wide { flex: 1; }
+    .btn.ghost { background: transparent; border: 1px solid var(--line); color: var(--text); }
+    .btn.danger { background: transparent; border: 1px solid var(--err); color: var(--err); }
+    .btn.pro { background: var(--pro); color: #fff; }
+    .btn.small { padding: 7px 12px; font-size: 14px; }
+    .btn:disabled { opacity: .55; cursor: default; }
+    .msg { margin-top: 12px; font-size: 14px; min-height: 1.4em; }
+    .msg.ok { color: var(--ok); } .msg.err { color: var(--err); } .msg.warn { color: var(--warn); }
+    .muted { color: var(--muted); font-size: 13px; }
+    .seg { display: flex; flex-wrap: wrap; gap: 6px; }
+    .seg button { border: 1px solid var(--line); background: transparent; color: var(--text);
+      border-radius: 999px; padding: 7px 13px; font: inherit; font-size: 14px; cursor: pointer; }
+    .seg button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+    .whenbox { margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .checks { display: grid; gap: 6px; }
+    .checks label { margin: 0; display: flex; gap: 8px; align-items: center; color: var(--text); font-size: 14px;
+      border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; cursor: pointer; }
+    .checks label small { color: var(--muted); margin-left: auto; }
+    .chat { background: var(--chat-bg); border-radius: 12px; padding: 14px; min-height: 160px; }
+    .bubble { background: var(--bubble); border-radius: 8px; padding: 4px; max-width: 100%; box-shadow: 0 1px .5px rgba(0,0,0,.13); }
+    .bubble img { width: 100%; border-radius: 6px; display: block; }
+    .bubble .cap { padding: 6px 8px 4px; white-space: pre-wrap; word-wrap: break-word; }
+    .bubble .time { text-align: right; font-size: 11px; color: var(--muted); padding: 0 6px 2px; }
+    .cap code { font-family: ui-monospace, monospace; }
+    .count { font-size: 12px; color: var(--muted); text-align: right; margin-top: 4px; }
+    .code { font: 700 28px/1.2 ui-monospace, monospace; letter-spacing: .12em; text-align: center;
+      margin: 14px 0 6px; padding: 12px; border-radius: 10px; background: var(--bg); }
+    .steps { font-size: 13px; color: var(--muted); padding-left: 18px; margin: 8px 0 0; }
+    .list { list-style: none; padding: 0; margin: 0; }
+    .list li { display: flex; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); }
+    .list li:first-child { border-top: 0; }
+    .thumb { width: 56px; height: 56px; border-radius: 8px; object-fit: cover; flex: none;
+      background: var(--bg); display: grid; place-items: center; color: var(--muted); font-size: 13px; }
+    .lbody { min-width: 0; flex: 1; }
+    .lwhen { font-size: 12px; color: var(--muted); }
+    .lwhen .err { color: var(--err); }
+    .ltext { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .lbtns { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+    .lbtns button { border: 1px solid var(--line); background: transparent; color: var(--text); border-radius: 8px;
+      padding: 4px 10px; font: inherit; font-size: 13px; cursor: pointer; }
+    .lbtns button:disabled { opacity: .4; cursor: default; }
+    .targets li { align-items: center; }
+    .targets li .lbody { font-size: 14px; }
+    .qsettings { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-bottom: 8px; }
+    .qsettings label { margin: 0; display: flex; gap: 6px; align-items: center; color: var(--text); font-size: 14px; }
+    .empty { color: var(--muted); font-size: 14px; padding: 6px 0; }
+    .auth { max-width: 420px; margin: 6vh auto 40px; padding: 0 16px; }
+    .auth h1 { font-size: 26px; margin: 0 0 6px; }
+    .auth .lead { color: var(--muted); margin: 0 0 18px; }
+    .feature { display: grid; gap: 6px; margin: 18px 0 0; padding: 0; list-style: none; color: var(--muted); font-size: 14px; }
+    .plans { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+    .plan { border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+    .plan.current { border-color: var(--accent); }
+    .plan h3 { margin: 0 0 4px; font-size: 16px; }
+    .plan ul { margin: 8px 0 0; padding-left: 18px; font-size: 14px; }
+    .table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    .table th, .table td { text-align: left; padding: 8px 6px; border-top: 1px solid var(--line); vertical-align: top; }
+    .table th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; }
+    .scroll { overflow-x: auto; }
+    .banner { max-width: 1100px; margin: 0 auto 12px; padding: 0 16px; }
+    .banner div { border-radius: 10px; padding: 10px 14px; background: var(--card); border: 1px solid var(--line); font-size: 14px; }
+  </style>
+</head>
+<body>
+  <!-- ========== Logged out ========== -->
+  <section id="authView" class="auth" hidden>
+    <h1 id="authTitle">⏰ Auto Poster</h1>
+    <p class="lead">Write your WhatsApp posts ahead of time. They go out to your groups and channels on schedule — from your own number.</p>
+    <div class="card">
+      <div class="seg" role="group" aria-label="Log in or sign up">
+        <button type="button" id="tabLogin" aria-pressed="true">Log in</button>
+        <button type="button" id="tabSignup" aria-pressed="false">Create account</button>
+      </div>
+      <form id="authForm" autocomplete="on">
+        <div id="nameWrap" hidden>
+          <label for="aName">Name</label>
+          <input type="text" id="aName" autocomplete="name" />
+        </div>
+        <label for="aEmail">Email</label>
+        <input type="email" id="aEmail" autocomplete="email" required />
+        <label for="aPw">Password</label>
+        <input type="password" id="aPw" autocomplete="current-password" minlength="8" required />
+        <div class="row"><button class="btn primary wide" id="authBtn" type="submit">Log in</button></div>
+        <div class="msg" id="authMsg" role="status"></div>
+      </form>
+    </div>
+    <ul class="feature">
+      <li>📅 Pick an exact time, a delay, or repeat daily / weekly</li>
+      <li>🧺 Or fill a queue and send one every few hours, only in your active hours</li>
+      <li>📣 Groups and channels, text and images, many at once</li>
+    </ul>
+  </section>
+
+  <!-- ========== Logged in ========== -->
+  <div id="appView" hidden>
+    <header>
+      <span style="font-size:22px">⏰</span>
+      <h1><a href="#/" id="appName">Auto Poster</a></h1>
+      <span class="badge" id="planBadge"></span>
+      <span class="pill" id="waPill"></span>
+      <nav>
+        <a href="#/" data-view="dash">Dashboard</a>
+        <a href="#/account" data-view="account">Account</a>
+        <a href="#/admin" data-view="admin" id="adminLink" hidden>Admin</a>
+        <button type="button" id="logout">Log out</button>
+      </nav>
+    </header>
+    <div class="banner" id="banner" hidden><div id="bannerText"></div></div>
+
+    <!-- Dashboard -->
+    <main class="dash" id="dashView">
+      <div class="stack">
+        <section class="card">
+          <h2>New post</h2>
+          <div class="tools" role="toolbar" aria-label="Formatting">
+            <button type="button" data-wrap="*" title="Bold"><b>B</b></button>
+            <button type="button" data-wrap="_" title="Italic"><i>I</i></button>
+            <button type="button" data-wrap="~" title="Strikethrough"><s>S</s></button>
+            <button type="button" data-wrap="```" title="Monospace">{ }</button>
+          </div>
+          <label for="text" hidden>Text</label>
+          <textarea id="text" placeholder="Write your post… *bold*, _italic_, ~strike~"></textarea>
+
+          <div class="drop" id="drop">
+            <input type="file" id="file" accept="image/jpeg,image/png,image/webp" aria-label="Image" />
+            <div id="dropInner">📷 Add an image — tap, drop or paste<br><small>Optional</small></div>
+          </div>
+
+          <label>Send to</label>
+          <div class="checks" id="targetChecks"></div>
+
+          <label>When</label>
+          <div class="seg" id="whenSeg" role="group" aria-label="When">
+            <button type="button" data-when="now">Now</button>
+            <button type="button" data-when="delay">In…</button>
+            <button type="button" data-when="at">At a time</button>
+            <button type="button" data-when="queue">Add to queue</button>
+          </div>
+          <div class="whenbox" id="delayBox" hidden>
+            <input type="number" id="delayN" class="inline" min="1" value="30" style="width:90px" aria-label="Delay amount" />
+            <select id="delayUnit" class="inline" aria-label="Delay unit">
+              <option value="1">minutes</option><option value="60">hours</option><option value="1440">days</option>
+            </select>
+          </div>
+          <div class="whenbox" id="atBox" hidden>
+            <input type="datetime-local" id="atInput" class="inline" aria-label="Send at" />
+          </div>
+          <div class="whenbox" id="repeatBox" hidden>
+            <label for="repeat" style="margin:0">Repeat</label>
+            <select id="repeat" class="inline">
+              <option value="none">Don't repeat</option><option value="daily">Every day</option><option value="weekly">Every week</option>
+            </select>
+            <span class="badge pro" id="repeatPro" hidden>Pro</span>
+          </div>
+          <div class="muted" id="whenHint" style="margin-top:8px"></div>
+
+          <div class="row">
+            <button class="btn ghost" id="clear" type="button">Clear</button>
+            <button class="btn primary wide" id="submit" type="button">Schedule</button>
+          </div>
+          <div class="msg" id="msg" role="status"></div>
+        </section>
+
+        <section class="card">
+          <h2>Scheduled <span class="right muted" id="schedCount"></span></h2>
+          <ol class="list" id="schedList"></ol>
+        </section>
+
+        <section class="card">
+          <h2>Queue</h2>
+          <div class="qsettings">
+            <label>Send one <select id="qInterval" class="inline" aria-label="Interval"></select></label>
+            <label>between <select id="qStart" class="inline" aria-label="Start hour"></select></label>
+            <label>and <select id="qEnd" class="inline" aria-label="End hour"></select></label>
+            <button class="btn ghost small" id="qPause" type="button">⏸ Pause</button>
+          </div>
+          <div class="muted" id="qStatus"></div>
+          <ol class="list" id="qList"></ol>
+        </section>
+      </div>
+
+      <aside class="stack">
+        <section class="card">
+          <h2>WhatsApp</h2>
+          <div id="waStatus">Checking…</div>
+          <div id="waLink" hidden>
+            <label for="phone">Your WhatsApp number (with country code)</label>
+            <input type="text" id="phone" inputmode="tel" placeholder="+1 555 123 4567" />
+            <div class="row"><button class="btn primary wide" id="pair" type="button">Get pairing code</button></div>
+            <div id="pairCode" hidden>
+              <div class="code" id="code"></div>
+              <ol class="steps">
+                <li>On your phone open WhatsApp → <b>Linked devices</b> → <b>Link a device</b></li>
+                <li>Tap <b>Link with phone number instead</b></li>
+                <li>Type the code above</li>
+              </ol>
+            </div>
+          </div>
+          <div class="row" id="waUnlinkRow" hidden>
+            <button class="btn ghost small" id="unlink" type="button">Unlink</button>
+          </div>
+        </section>
+
+        <section class="card">
+          <h2>Groups & channels <span class="right muted" id="targetCount"></span></h2>
+          <ul class="list targets" id="targetList"></ul>
+          <div id="groupPick" hidden>
+            <label for="groupSelect">Add one of your groups</label>
+            <div style="display:flex;gap:8px">
+              <select id="groupSelect"></select>
+              <button class="btn ghost small" id="addGroup" type="button">Add</button>
+            </div>
+          </div>
+          <label for="targetRef">…or paste a group invite / channel link</label>
+          <div style="display:flex;gap:8px">
+            <input type="text" id="targetRef" placeholder="https://whatsapp.com/channel/…" />
+            <button class="btn ghost small" id="addTarget" type="button">Add</button>
+          </div>
+          <div class="muted" style="margin-top:8px">Channels: your number must own or admin them. Groups: your number must be a member (and an admin, if only admins can post).</div>
+          <div class="msg" id="targetMsg" role="status"></div>
+        </section>
+
+        <section class="card">
+          <h2>Preview</h2>
+          <div class="chat"><div class="bubble" id="preview"></div></div>
+          <div class="count" id="count"></div>
+        </section>
+
+        <section class="card">
+          <h2>Recently sent</h2>
+          <ul class="list" id="history"></ul>
+        </section>
+      </aside>
+    </main>
+
+    <!-- Account -->
+    <main id="accountView" hidden>
+      <section class="card" id="billingCard">
+        <h2>Plan</h2>
+        <div id="planInfo"></div>
+        <div class="plans" id="plans" style="margin-top:12px"></div>
+        <div class="row">
+          <button class="btn pro" id="upgrade" type="button" hidden>Upgrade to Pro</button>
+          <button class="btn ghost" id="manageBilling" type="button" hidden>Manage billing</button>
+        </div>
+        <div class="msg" id="billingMsg" role="status"></div>
+      </section>
+
+      <section class="card">
+        <h2>Settings</h2>
+        <label for="sName">Name</label>
+        <input type="text" id="sName" />
+        <label for="sTz">Time zone (for scheduled times and the queue's active hours)</label>
+        <select id="sTz"></select>
+        <label for="sFooter">Footer — added to the end of every post (optional)</label>
+        <textarea id="sFooter" style="min-height:70px" placeholder="📲 Follow for more"></textarea>
+        <div class="row"><button class="btn primary" id="saveSettings" type="button">Save</button></div>
+        <div class="msg" id="settingsMsg" role="status"></div>
+      </section>
+
+      <section class="card">
+        <h2>Password</h2>
+        <label for="pwCur">Current password</label>
+        <input type="password" id="pwCur" autocomplete="current-password" />
+        <label for="pwNew">New password (8+ characters)</label>
+        <input type="password" id="pwNew" autocomplete="new-password" />
+        <div class="row"><button class="btn primary" id="changePw" type="button">Change password</button></div>
+        <div class="msg" id="pwMsg" role="status"></div>
+      </section>
+
+      <section class="card">
+        <h2>Delete account</h2>
+        <p class="muted">Deletes your account, every scheduled post, and unlinks your WhatsApp. This can't be undone.</p>
+        <label for="delPw">Password</label>
+        <input type="password" id="delPw" autocomplete="current-password" />
+        <div class="row"><button class="btn danger" id="deleteAccount" type="button">Delete my account</button></div>
+        <div class="msg" id="delMsg" role="status"></div>
+      </section>
+    </main>
+
+    <!-- Admin -->
+    <main id="adminView" hidden>
+      <section class="card">
+        <h2>Accounts <span class="right muted" id="adminSummary"></span></h2>
+        <div class="scroll"><table class="table" id="adminTable"></table></div>
+        <div class="msg" id="adminMsg" role="status"></div>
+      </section>
+    </main>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
