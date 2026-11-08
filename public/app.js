@@ -30,6 +30,7 @@ function setMsg(id, text, kind = '') {
   $(id).className = `msg ${kind}`;
 }
 
+const icon = (name) => `<svg class="i"><use href="#i-${name}"/></svg>`;
 const escapeHtml = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
 // ---------- Auth ----------
@@ -108,7 +109,7 @@ function showApp() {
   const billing = new URLSearchParams(location.search).get('billing');
   if (billing) {
     history.replaceState(null, '', location.pathname + location.hash);
-    banner(billing === 'success' ? '🎉 Thanks! Pro is switching on — it can take a few seconds.' : 'Checkout cancelled — nothing was charged.');
+    banner(billing === 'success' ? 'Thanks! Pro is switching on. It can take a few seconds.' : 'Checkout cancelled. Nothing was charged.');
     if (billing === 'success') setTimeout(refreshMe, 4000);
   }
 }
@@ -190,8 +191,7 @@ async function loadImage(file) {
   canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
   imageData = canvas.toDataURL('image/jpeg', 0.88);
   $('dropInner').innerHTML =
-    `<img src="${imageData}" alt="Selected image" /><small>Tap to change · </small>` +
-    `<small><a href="#" id="rmImg">remove</a></small>`;
+    `<div><img src="${imageData}" alt="Selected image" /><small>Tap to change · <a href="#" id="rmImg">Remove</a></small></div>`;
   $('rmImg').onclick = (e) => { e.preventDefault(); e.stopPropagation(); clearImage(); };
   renderPreview();
 }
@@ -199,7 +199,7 @@ async function loadImage(file) {
 function clearImage() {
   imageData = null;
   $('file').value = '';
-  $('dropInner').innerHTML = '📷 Add an image — tap, drop or paste<br><small>Optional</small>';
+  $('dropInner').innerHTML = `<span class="drop-ic">${icon('image')}</span><span><b>Add an image</b> · tap, drop or paste<br><small>Optional · JPEG, PNG or WebP</small></span>`;
   renderPreview();
 }
 
@@ -220,8 +220,8 @@ function drawTargets() {
   for (const id of [...selected]) if (!t.some((x) => x.id === id)) selected.delete(id);
   if (t.length === 1) selected.add(t[0].id);
   $('targetChecks').innerHTML = t.length
-    ? t.map((x) => `<label><input type="checkbox" value="${x.id}" ${selected.has(x.id) ? 'checked' : ''} /> ${escapeHtml(x.name)} <small>${x.kind === 'channel' ? '📣 channel' : x.kind === 'group' ? '👥 group' : x.kind}</small></label>`).join('')
-    : '<div class="empty">Add a group or channel first (on the right →)</div>';
+    ? t.map((x) => `<label><input type="checkbox" value="${x.id}" ${selected.has(x.id) ? 'checked' : ''} /> ${escapeHtml(x.name)} <small>${x.kind === 'channel' ? 'Channel' : x.kind === 'group' ? 'Group' : 'Test'}</small></label>`).join('')
+    : '<div class="hint">Add a group or channel first, under <b>Groups & channels</b>.</div>';
   for (const cb of $('targetChecks').querySelectorAll('input')) {
     cb.onchange = () => {
       cb.checked ? selected.add(cb.value) : selected.delete(cb.value);
@@ -231,9 +231,9 @@ function drawTargets() {
 
   $('targetCount').textContent = `${t.length} / ${me.limits.maxTargets}`;
   $('targetList').innerHTML = t.length
-    ? t.map((x) => `<li data-id="${x.id}"><span>${x.kind === 'channel' ? '📣' : '👥'}</span><div class="lbody">${escapeHtml(x.name)}</div>
+    ? t.map((x) => `<li data-id="${x.id}"><span class="t-ic ${x.kind === 'channel' ? 'c-teal' : 'c-amber'}">${icon(x.kind === 'channel' ? 'send' : 'users')}</span><div class="lbody">${escapeHtml(x.name)}<div class="muted">${x.kind === 'channel' ? 'Channel' : x.kind === 'group' ? 'Group' : 'Test target'}</div></div>
         <div class="lbtns"><button type="button" data-act="del" aria-label="Remove ${escapeHtml(x.name)}">✕</button></div></li>`).join('')
-    : '<li class="empty">None yet</li>';
+    : '<li class="empty">No groups or channels yet</li>';
 }
 
 $('targetList').onclick = async (e) => {
@@ -256,7 +256,7 @@ async function addTarget(ref) {
     const added = me.targets.at(-1);
     if (added) { selected.add(added.id); store.set('targets', JSON.stringify([...selected])); }
     drawMe();
-    setMsg('targetMsg', `✅ Added ${added?.name ?? ''}`, 'ok');
+    setMsg('targetMsg', `Added ${added?.name ?? ''}`, 'ok');
     $('targetRef').value = '';
     loadGroups();
   } catch (err) { setMsg('targetMsg', err.message, 'err'); }
@@ -340,9 +340,9 @@ $('submit').onclick = async () => {
   try {
     const data = await api('posts', 'POST', { text: $('text').value, image: imageData, targets, when: w, repeat: $('repeat').value });
     if (when === 'now') {
-      data.sent ? setMsg('msg', '✅ Posted!', 'ok') : setMsg('msg', `⚠️ Couldn't send yet: ${data.error} — it'll retry every 5 minutes (see Scheduled).`, 'warn');
+      data.sent ? setMsg('msg', 'Posted!', 'ok') : setMsg('msg', `Couldn't send yet: ${data.error}. It will retry every 5 minutes (see Scheduled).`, 'warn');
     } else {
-      setMsg('msg', `✅ ${when === 'queue' ? 'Queued' : 'Scheduled'} · goes out ${fmtWhen(data.eta)}`, 'ok');
+      setMsg('msg', `${when === 'queue' ? 'Added to the queue' : 'Scheduled'} · goes out ${fmtWhen(data.eta)}`, 'ok');
     }
     $('text').value = '';
     saveDraft();
@@ -350,7 +350,7 @@ $('submit').onclick = async () => {
     drawPosts(data);
     refreshMe();
   } catch (err) {
-    setMsg('msg', `❌ ${err.message}`, 'err');
+    setMsg('msg', err.message, 'err');
   } finally {
     $('submit').disabled = false;
   }
@@ -381,21 +381,24 @@ function summary(text) {
   return text.split('\n').map((l) => l.replace(/[*_~`]/g, '').trim()).filter(Boolean).slice(0, 3).join(' · ') || '(image)';
 }
 
+const cap1 = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+
 function postItem(p, i, list, isQueue) {
-  const repeat = p.repeat && p.repeat !== 'none' ? ` · 🔁 ${p.repeat}` : '';
-  const state = p.status === 'failed' ? `<span class="err">failed: ${escapeHtml(p.error)}</span>`
-    : p.error ? `<span class="err">retrying — ${escapeHtml(p.error)}</span>`
-    : isQueue && me.queue.paused ? 'paused' : escapeHtml(fmtWhen(p.eta));
+  const repeat = p.repeat && p.repeat !== 'none' ? `<span class="chip c-violet">${icon('repeat')}${p.repeat === 'daily' ? 'Daily' : 'Weekly'}</span>` : '';
+  const state = p.status === 'failed' ? `<span class="chip c-red">Failed</span><span class="err">${escapeHtml(p.error)}</span>`
+    : p.error ? `<span class="chip c-amber">Retrying</span><span class="err">${escapeHtml(p.error)}</span>`
+    : isQueue && me.queue.paused ? '<span class="chip c-gray">Paused</span>'
+    : `<span class="chip ${isQueue ? 'c-violet' : 'c-blue'}">${icon('clock')}${escapeHtml(cap1(fmtWhen(p.eta)))}</span>`;
   return `<li data-id="${p.id}">
     ${p.hasImage ? `<img class="thumb" alt="" src="api/posts/${p.id}/image" loading="lazy" />` : '<div class="thumb">Aa</div>'}
     <div class="lbody">
-      <div class="lwhen">${isQueue ? `#${i + 1} · ` : ''}${state}${repeat} · → ${escapeHtml(p.targets.join(', ') || 'nowhere')}</div>
+      <div class="lwhen">${isQueue ? `<span class="chip c-gray">#${i + 1}</span>` : ''}${state}${repeat}<span>→ ${escapeHtml(p.targets.join(', ') || 'nowhere')}</span></div>
       <div class="ltext">${escapeHtml(summary(p.text))}</div>
       <div class="lbtns">
         ${isQueue ? `<button type="button" data-act="up" ${i === 0 ? 'disabled' : ''} aria-label="Move up">↑</button>
         <button type="button" data-act="down" ${i === list.length - 1 ? 'disabled' : ''} aria-label="Move down">↓</button>` : ''}
         <button type="button" data-act="send">Send now</button>
-        <button type="button" data-act="del" aria-label="Delete">✕</button>
+        <button type="button" data-act="del" aria-label="Delete">Delete</button>
       </div>
     </div>
   </li>`;
@@ -406,23 +409,26 @@ function drawPosts(data) {
   const s = posts.scheduled;
   $('schedCount').textContent = s.length ? String(s.length) : '';
   $('schedList').innerHTML = s.length ? s.map((p, i) => postItem(p, i, s, false)).join('')
-    : '<li class="empty">Nothing scheduled. Pick “In…” or “At a time” above.</li>';
+    : '<li class="empty">Nothing scheduled yet. Pick “In…” or “At a time” when you write a post.</li>';
 
   const q = posts.queue;
   if (data.queueSettings) { me.queue = data.queueSettings; drawQueueSettings(me.queue); }
-  let status = q.length ? `${q.length} post${q.length === 1 ? '' : 's'} waiting` : 'Empty — queued posts go out one at a time, every interval.';
-  if (q.length && me.queue.paused) status += ' · ⏸ paused';
+  let status = q.length ? `${q.length} post${q.length === 1 ? '' : 's'} waiting` : 'Empty. Queued posts go out one at a time, every interval.';
+  if (q.length && me.queue.paused) status += ' · paused';
   else if (q.length) status += ` · next ${fmtWhen(q[0].eta)}`;
   if (me.queue.startHour !== me.queue.endHour) {
     status += ` · only ${fmtHour(me.queue.startHour)}–${fmtHour(me.queue.endHour)} (${me.timeZone.split('/').pop().replace(/_/g, ' ')})`;
   }
-  if (me.queue.error) status += ` · ⚠️ last send failed: ${me.queue.error}`;
+  if (me.queue.error) status += ` · last send failed: ${me.queue.error}`;
   $('qStatus').textContent = status;
   $('qList').innerHTML = q.map((p, i) => postItem(p, i, q, true)).join('');
 
   const h = posts.history || [];
   $('history').innerHTML = h.length
-    ? h.slice(0, 15).map((x) => `<li><div class="lbody"><div class="lwhen">${new Date(x.at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })} · ${escapeHtml(x.status)}${x.targets.length ? ` → ${escapeHtml(x.targets.join(', '))}` : ''}</div><div class="ltext">${x.hasImage ? '📷 ' : ''}${escapeHtml(summary(x.text))}</div></div></li>`).join('')
+    ? h.slice(0, 15).map((x) => {
+      const ok = x.status === 'sent';
+      return `<li><span class="t-ic ${ok ? 'c-green' : 'c-red'}">${icon(ok ? 'check' : 'history')}</span><div class="lbody"><div class="ltext" style="margin:0">${x.hasImage ? `${icon('image')} ` : ''}${escapeHtml(summary(x.text))}</div><div class="lwhen" style="margin-top:3px">${new Date(x.at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}${ok ? '' : ` · <span class="err">${escapeHtml(x.status)}</span>`}${x.targets.length ? ` · ${escapeHtml(x.targets.join(', '))}` : ''}</div></div></li>`;
+    }).join('')
     : '<li class="empty">Nothing sent yet</li>';
   updateHint();
 }
@@ -442,9 +448,9 @@ async function postAction(e) {
   try {
     const data = act === 'del' ? await api(`posts/${id}`, 'DELETE') : await api(`posts/${id}/${act}`, 'POST');
     drawPosts(data);
-    if (act === 'send') setMsg('msg', '✅ Sent', 'ok');
+    if (act === 'send') setMsg('msg', 'Sent', 'ok');
   } catch (err) {
-    setMsg('msg', `❌ ${err.message}`, 'err');
+    setMsg('msg', err.message, 'err');
     loadPosts();
   }
 }
@@ -466,11 +472,11 @@ function drawQueueSettings(s) {
   $('qInterval').value = s.intervalMin;
   $('qStart').value = s.startHour;
   $('qEnd').value = s.endHour;
-  $('qPause').textContent = s.paused ? '▶ Resume' : '⏸ Pause';
+  $('qPause').textContent = s.paused ? 'Resume' : 'Pause';
 }
 
 async function saveQueue(patch) {
-  try { drawPosts(await api('queue/settings', 'POST', patch)); } catch (err) { setMsg('msg', `❌ ${err.message}`, 'err'); }
+  try { drawPosts(await api('queue/settings', 'POST', patch)); } catch (err) { setMsg('msg', err.message, 'err'); }
 }
 $('qInterval').onchange = () => saveQueue({ intervalMin: Number($('qInterval').value) });
 $('qStart').onchange = () => saveQueue({ startHour: Number($('qStart').value) });
@@ -480,22 +486,24 @@ $('qPause').onclick = () => saveQueue({ paused: !me.queue.paused });
 // ---------- WhatsApp link ----------
 
 const WA_LABEL = {
-  connected: '🟢 Connected',
-  connecting: '🟡 Connecting…',
-  needs_link: '🔴 Not linked',
-  pairing: '🟡 Waiting for you to enter the code…',
+  connected: ['on', 'Connected'],
+  connecting: ['wait', 'Connecting…'],
+  needs_link: ['off', 'Not linked'],
+  pairing: ['wait', 'Waiting for you to enter the code…'],
 };
 let lastWaState = null;
 
 async function loadWhatsApp() {
   let wa;
   try { wa = await api('whatsapp'); } catch { return; }
-  let text = WA_LABEL[wa.state] || wa.state;
-  if (wa.state === 'connected' && wa.phone) text += ` as +${wa.phone}`;
-  if (wa.error) text += ` · ⚠️ ${wa.error}`;
-  if (wa.dryRun) text += ' · dry-run (posts are logged, not sent)';
-  $('waStatus').textContent = text;
-  $('waPill').textContent = `WhatsApp ${WA_LABEL[wa.state]?.split(' ')[0] || ''}`;
+  const [dot, label] = WA_LABEL[wa.state] || ['off', wa.state];
+  let text = escapeHtml(label);
+  if (wa.state === 'connected' && wa.phone) text += ` as <b>+${escapeHtml(wa.phone)}</b>`;
+  if (wa.error) text += ` · <span class="err">${escapeHtml(wa.error)}</span>`;
+  if (wa.dryRun) text += ' <span class="chip c-amber">Test mode</span>';
+  $('waStatus').innerHTML = `<span class="dot ${dot}"></span><span>${text}</span>`;
+  $('waPill').innerHTML = `<span class="dot ${dot}"></span>WhatsApp`;
+  $('waPill').title = label;
   $('waLink').hidden = !['needs_link', 'pairing'].includes(wa.state);
   $('waUnlinkRow').hidden = wa.state !== 'connected';
   $('pairCode').hidden = !wa.pairingCode;
@@ -513,7 +521,7 @@ $('pair').onclick = async () => {
     await api('whatsapp/pair', 'POST', { phone: $('phone').value });
     await loadWhatsApp();
   } catch (err) {
-    $('waStatus').textContent = `❌ ${err.message}`;
+    $('waStatus').innerHTML = `<span class="dot off"></span><span class="err">${escapeHtml(err.message)}</span>`;
   } finally {
     $('pair').disabled = false;
   }
@@ -542,17 +550,20 @@ function drawAccount() {
       <li>${p.recurring ? 'Repeating posts (daily / weekly)' : 'No repeating posts'}</li>
     </ul>`;
   if (!cfg.billingEnabled) {
-    $('planInfo').innerHTML = `You have <b>everything unlocked</b> for free while ${escapeHtml(cfg.appName)} is in beta.<br>
-      <span class="muted">This month: ${me.usage.created} post${me.usage.created === 1 ? '' : 's'}.</span>`;
+    $('planInfo').innerHTML = `<div class="beta"><span class="t-ic">${icon('star')}</span><div>
+      <b>Everything is unlocked, free,</b> while ${escapeHtml(cfg.appName)} is in beta.<br>
+      <span class="muted">This month: ${me.usage.created} post${me.usage.created === 1 ? '' : 's'}.</span></div></div>`;
     $('plans').innerHTML = '';
     $('upgrade').hidden = $('manageBilling').hidden = true;
     return;
   }
+  const pct = Math.min(100, Math.round((me.usage.created / me.limits.postsPerMonth) * 100));
   $('planInfo').innerHTML = `You're on <b>${escapeHtml(me.limits.label)}</b>${me.subscription && me.plan === 'pro' ? ` <span class="muted">(${escapeHtml(me.subscription.replace('_', ' '))})</span>` : ''}.
-    <span class="muted">This month: ${me.usage.created} / ${me.limits.postsPerMonth.toLocaleString()} posts.</span>`;
+    <div class="usage"><div class="usage-bar"><span style="width:${pct}%"></span></div>
+    <span class="muted">${me.usage.created} of ${me.limits.postsPerMonth.toLocaleString()} posts used this month</span></div>`;
   $('plans').innerHTML = Object.entries(cfg.plans).map(([id, p]) => `<div class="plan ${id === me.plan ? 'current' : ''}">
-      <h3>${escapeHtml(p.label)} ${id === me.plan ? '<span class="badge">Current</span>' : ''}</h3>
-      <div class="muted">${id === 'pro' ? escapeHtml(cfg.proPriceLabel) : 'Free'}</div>${fmt(p)}</div>`).join('');
+      <h3>${escapeHtml(p.label)} ${id === me.plan ? '<span class="badge">Current</span>' : id === 'pro' ? '<span class="badge pro">Best</span>' : ''}</h3>
+      <div class="price">${id === 'pro' ? escapeHtml(cfg.proPriceLabel) : 'Free forever'}</div>${fmt(p)}</div>`).join('');
   $('upgrade').hidden = me.plan === 'pro';
   $('manageBilling').hidden = !me.canManageBilling;
 }
@@ -572,7 +583,7 @@ $('saveSettings').onclick = async () => {
     me = (await api('me/settings', 'POST', { name: $('sName').value, footer: $('sFooter').value, timeZone: $('sTz').value })).user;
     drawMe();
     loadPosts();
-    setMsg('settingsMsg', '✅ Saved', 'ok');
+    setMsg('settingsMsg', 'Saved', 'ok');
   } catch (err) { setMsg('settingsMsg', err.message, 'err'); }
 };
 
@@ -580,7 +591,7 @@ $('changePw').onclick = async () => {
   try {
     await api('me/password', 'POST', { current: $('pwCur').value, next: $('pwNew').value });
     $('pwCur').value = $('pwNew').value = '';
-    setMsg('pwMsg', '✅ Password changed. Other devices were logged out.', 'ok');
+    setMsg('pwMsg', 'Password changed. Other devices were logged out.', 'ok');
   } catch (err) { setMsg('pwMsg', err.message, 'err'); }
 };
 
@@ -600,18 +611,19 @@ async function loadAdmin() {
     const { users, billingEnabled } = await api('admin/users');
     const pro = users.filter((u) => u.plan === 'pro').length;
     const paying = users.filter((u) => ['active', 'trialing', 'past_due'].includes(u.subscription)).length;
-    $('adminSummary').textContent = `${users.length} accounts${billingEnabled ? ` · ${pro} on Pro · ${paying} paying` : ' · billing off'}`;
+    $('adminSummary').textContent = `${users.length} account${users.length === 1 ? '' : 's'}${billingEnabled ? ` · ${pro} on Pro · ${paying} paying` : ' · billing is off, everyone has Pro'}`;
+    const waDot = { connected: 'on', connecting: 'wait', pairing: 'wait' };
     $('adminTable').innerHTML = `<tr><th>Account</th><th>Plan</th><th>WhatsApp</th><th>Posts</th><th></th></tr>` +
       users.map((u) => `<tr data-id="${u.id}">
-        <td><b>${escapeHtml(u.email)}</b>${u.isAdmin ? ' <span class="badge">admin</span>' : ''}${u.disabled ? ' <span class="badge" style="color:var(--err)">disabled</span>' : ''}<br>
+        <td><b>${escapeHtml(u.email)}</b>${u.isAdmin ? ' <span class="chip c-green">Admin</span>' : ''}${u.disabled ? ' <span class="chip c-red">Disabled</span>' : ''}<br>
           <span class="muted">${escapeHtml(u.name || '')} · joined ${new Date(u.createdAt).toLocaleDateString()}${u.lastLoginAt ? ` · seen ${new Date(u.lastLoginAt).toLocaleDateString()}` : ''}</span></td>
-        <td>${escapeHtml(u.plan)}${u.subscription ? `<br><span class="muted">${escapeHtml(u.subscription)}</span>` : ''}<br>
-          <select class="inline" data-act="plan" aria-label="Plan override">
+        <td><span class="chip ${u.plan === 'pro' ? 'c-violet' : 'c-gray'}">${escapeHtml(u.plan === 'pro' ? 'Pro' : 'Free')}</span>${u.subscription ? ` <span class="muted">${escapeHtml(u.subscription)}</span>` : ''}<br>
+          <select class="inline" data-act="plan" aria-label="Plan override" style="margin-top:8px">
             <option value="" ${u.planOverride ? '' : 'selected'}>auto</option>
             <option value="pro" ${u.planOverride === 'pro' ? 'selected' : ''}>give Pro</option>
             <option value="free" ${u.planOverride === 'free' ? 'selected' : ''}>force Free</option>
           </select></td>
-        <td>${escapeHtml(u.whatsapp)}<br><span class="muted">${u.targets} target${u.targets === 1 ? '' : 's'}</span></td>
+        <td><span style="display:inline-flex;align-items:center;gap:8px"><span class="dot ${waDot[u.whatsapp] || 'off'}"></span>${escapeHtml(u.whatsapp.replace('_', ' '))}</span><br><span class="muted">${u.targets} target${u.targets === 1 ? '' : 's'}</span></td>
         <td>${u.pending} waiting<br><span class="muted">${u.postsThisMonth} this month</span></td>
         <td><div class="lbtns">
           <button type="button" data-act="reset">Reset password</button>
@@ -624,7 +636,7 @@ async function loadAdmin() {
 $('adminTable').onchange = async (e) => {
   if (e.target.dataset.act !== 'plan') return;
   const id = e.target.closest('tr').dataset.id;
-  try { await api(`admin/users/${id}`, 'POST', { planOverride: e.target.value || null }); setMsg('adminMsg', '✅ Plan updated', 'ok'); loadAdmin(); }
+  try { await api(`admin/users/${id}`, 'POST', { planOverride: e.target.value || null }); setMsg('adminMsg', 'Plan updated', 'ok'); loadAdmin(); }
   catch (err) { setMsg('adminMsg', err.message, 'err'); }
 };
 $('adminTable').onclick = async (e) => {
@@ -659,7 +671,7 @@ function stopPolling() {
 }
 
 cfg = await fetch('api/config').then((r) => r.json()).catch(() => ({}));
-$('authTitle').textContent = `⏰ ${cfg.appName || 'Auto Poster'}`;
+$('authTitle').textContent = cfg.appName || 'Auto Poster';
 document.title = cfg.appName || 'Auto Poster';
 if (!cfg.signupsOpen) $('tabSignup').hidden = true;
 try {
