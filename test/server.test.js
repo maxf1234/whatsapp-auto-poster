@@ -26,10 +26,16 @@ function fakeWhatsApp() {
       if (ref.endsWith('@g.us')) return { jid: ref, name: ref === '111@g.us' ? 'Family' : 'Work', kind: 'group' };
       throw Object.assign(new Error('bad link'), { status: 400 });
     },
-    send: async (jid, msg) => {
+    statusAudience: async ({ contacts, groups = [], numbers = [] }) => [
+      ...(contacts ? ['1000@s.whatsapp.net', '1001@s.whatsapp.net'] : []),
+      ...groups.flatMap((g) => (g === '111@g.us' ? ['2000@s.whatsapp.net'] : [])),
+      ...numbers.map((n) => `${n}@s.whatsapp.net`),
+      '15550001111@s.whatsapp.net',
+    ],
+    send: async (jid, msg, opts) => {
       if (!linked) throw Object.assign(new Error('WhatsApp is not linked yet — link it first'), { status: 503 });
       if (failing === jid) throw new Error('send failed');
-      sent.push({ userId, jid, ...msg });
+      sent.push({ userId, jid, ...msg, ...(opts ? { opts } : {}) });
     },
     logout: async () => { linked = false; },
   });
@@ -338,4 +344,34 @@ test('static page and health check', async (t) => {
   const html = await (await fetch(`${base}/`)).text();
   assert.match(html, /<title>Auto Poster<\/title>/);
   assert.equal((await fetch(`${base}/..%2fserver.js`)).status, 400);
+});
+
+test('Status: needs an audience, sends with the audience list and colour', async (t) => {
+  const { client, wa } = await setup(t);
+  const c = await signedUp(client);
+  assert.equal((await c('targets', 'POST', { ref: 'status', audience: {} })).status, 400, 'nobody chosen');
+  const r = await c('targets', 'POST', { ref: 'status', audience: { contacts: true, groups: ['111@g.us', 'junk'], numbers: '+1 (555) 222-3333\n12' }, color: '#7c4dff' });
+  assert.equal(r.status, 200);
+  const status = r.body.user.targets[0];
+  assert.deepEqual([status.kind, status.name, status.color], ['status', 'My Status', '#7c4dff']);
+  assert.deepEqual(status.audience, { contacts: true, groups: ['111@g.us'], numbers: ['15552223333'] });
+  assert.equal(status.audienceSummary, 'your contacts, 1 group, 1 number');
+  assert.equal((await c('targets', 'POST', { ref: 'status', audience: { contacts: true } })).status, 409, 'only one Status');
+
+  const { user } = (await c('targets', 'POST', { ref: '111@g.us' })).body;
+  await c('posts', 'POST', { text: 'Hello status', targets: user.targets.map((x) => x.id), when: { type: 'now' } });
+  const [toStatus, toGroup] = wa.sent;
+  assert.equal(toStatus.jid, 'status@broadcast');
+  assert.equal(toStatus.opts.backgroundColor, '#7c4dff');
+  assert.deepEqual(toStatus.opts.statusJidList.sort(), ['1000@s.whatsapp.net', '1001@s.whatsapp.net', '15550001111@s.whatsapp.net', '15552223333@s.whatsapp.net', '2000@s.whatsapp.net']);
+  assert.equal(toGroup.jid, '111@g.us');
+  assert.equal(toGroup.opts, undefined);
+
+  // Edit the audience; an audience that resolves to nobody but you fails the send.
+  const edited = await c(`targets/${status.id}`, 'POST', { audience: { groups: ['999@g.us'] }, color: 'not-a-colour' });
+  assert.equal(edited.body.user.targets[0].color, '#128c7e', 'unknown colours fall back to the default');
+  const fail = await c('posts', 'POST', { text: 'x', targets: [status.id], when: { type: 'now' } });
+  assert.equal(fail.body.sent, false);
+  assert.match(fail.body.error, /Nobody would see/);
+  assert.equal((await c(`targets/${user.targets[1].id}`, 'POST', { audience: { contacts: true } })).status, 400, 'groups have no audience');
 });

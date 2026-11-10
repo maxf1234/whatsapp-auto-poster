@@ -173,6 +173,10 @@ function caption() {
 function renderPreview() {
   const cap = caption();
   const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const picked = me ? me.targets.filter((t) => selected.has(t.id)) : [];
+  const statusOnly = !imageData && picked.length > 0 && picked.every((t) => t.kind === 'status');
+  $('preview').classList.toggle('status-bubble', statusOnly);
+  $('preview').style.setProperty('--status-bg', (editingStatus && statusColor) || picked[0]?.color || '#128c7e');
   $('preview').innerHTML =
     (imageData ? `<img src="${imageData}" alt="Post image" />` : '') +
     `<div class="cap">${waFormat(cap) || '<span style="opacity:.5">Your post…</span>'}</div>` +
@@ -215,32 +219,112 @@ document.addEventListener('paste', (e) => {
 });
 
 // Targets as checkboxes in the composer.
+const KIND = {
+  channel: { label: 'Channel', icon: 'send', color: 'c-teal' },
+  group: { label: 'Group', icon: 'users', color: 'c-amber' },
+  status: { label: 'Status', icon: 'status', color: 'c-green' },
+};
+const kindOf = (x) => KIND[x.kind] ?? { label: 'Test', icon: 'users', color: 'c-amber' };
+
 function drawTargets() {
   const t = me.targets;
   for (const id of [...selected]) if (!t.some((x) => x.id === id)) selected.delete(id);
   if (t.length === 1) selected.add(t[0].id);
   $('targetChecks').innerHTML = t.length
-    ? t.map((x) => `<label><input type="checkbox" value="${x.id}" ${selected.has(x.id) ? 'checked' : ''} /> ${escapeHtml(x.name)} <small>${x.kind === 'channel' ? 'Channel' : x.kind === 'group' ? 'Group' : 'Test'}</small></label>`).join('')
-    : '<div class="hint">Add a group or channel first, under <b>Groups & channels</b>.</div>';
+    ? t.map((x) => `<label><input type="checkbox" value="${x.id}" ${selected.has(x.id) ? 'checked' : ''} /> ${escapeHtml(x.name)} <small>${kindOf(x).label}</small></label>`).join('')
+    : '<div class="hint">Add a group, channel or your Status first, under <b>Where to post</b>.</div>';
   for (const cb of $('targetChecks').querySelectorAll('input')) {
     cb.onchange = () => {
       cb.checked ? selected.add(cb.value) : selected.delete(cb.value);
       store.set('targets', JSON.stringify([...selected]));
+      renderPreview();
     };
   }
 
   $('targetCount').textContent = `${t.length} / ${me.limits.maxTargets}`;
   $('targetList').innerHTML = t.length
-    ? t.map((x) => `<li data-id="${x.id}"><span class="t-ic ${x.kind === 'channel' ? 'c-teal' : 'c-amber'}">${icon(x.kind === 'channel' ? 'send' : 'users')}</span><div class="lbody">${escapeHtml(x.name)}<div class="muted">${x.kind === 'channel' ? 'Channel' : x.kind === 'group' ? 'Group' : 'Test target'}</div></div>
-        <div class="lbtns"><button type="button" data-act="del" aria-label="Remove ${escapeHtml(x.name)}">✕</button></div></li>`).join('')
-    : '<li class="empty">No groups or channels yet</li>';
+    ? t.map((x) => `<li data-id="${x.id}"><span class="t-ic ${kindOf(x).color}">${icon(kindOf(x).icon)}</span><div class="lbody">${escapeHtml(x.name)}<div class="muted">${x.kind === 'status' ? `Seen by ${escapeHtml(x.audienceSummary)}` : kindOf(x).label}</div></div>
+        <div class="lbtns">${x.kind === 'status' ? '<button type="button" data-act="edit">Edit</button>' : ''}<button type="button" data-act="del" aria-label="Remove ${escapeHtml(x.name)}">✕</button></div></li>`).join('')
+    : '<li class="empty">Nowhere to post yet</li>';
+  $('addStatus').hidden = t.some((x) => x.kind === 'status') || !$('statusEditor').hidden;
 }
 
+// ---------- Status audience editor ----------
+
+let editingStatus = null; // target id, or 'new'
+let statusColor = null;
+let lastWa = {};
+
+async function openStatusEditor(target) {
+  editingStatus = target?.id ?? 'new';
+  const a = target?.audience ?? { contacts: true, groups: [], numbers: [] };
+  $('stTitle').textContent = target ? 'Who sees your Status' : 'Post to my Status';
+  $('stContacts').checked = a.contacts;
+  $('stContactCount').textContent = lastWa.state === 'connected' ? `(${lastWa.contacts ?? 0} synced from your phone)` : '';
+  $('stNumbers').value = (a.numbers ?? []).map((n) => `+${n}`).join('\n');
+  statusColor = target?.color ?? cfg.statusColors?.[0];
+  $('stColors').innerHTML = (cfg.statusColors ?? []).map((c) =>
+    `<button type="button" role="radio" aria-checked="${c === statusColor}" aria-label="Colour ${c}" data-color="${c}" style="background:${c}"></button>`).join('');
+  setMsg('stMsg', '');
+  $('statusEditor').hidden = false;
+  $('addStatus').hidden = true;
+  $('stGroups').innerHTML = '<div class="hint" style="margin:0">Loading your groups…</div>';
+  try {
+    const { groups } = await api('whatsapp/groups');
+    const chosen = new Set(a.groups);
+    $('stGroups').innerHTML = groups.length
+      ? groups.map((g) => `<label><input type="checkbox" value="${escapeHtml(g.jid)}" ${chosen.has(g.jid) ? 'checked' : ''} /> ${escapeHtml(g.name)}</label>`).join('')
+      : '<div class="hint" style="margin:0">Your number isn\'t in any groups.</div>';
+  } catch {
+    $('stGroups').innerHTML = '<div class="hint" style="margin:0">Link WhatsApp to pick groups.</div>';
+  }
+}
+
+function closeStatusEditor() {
+  editingStatus = null;
+  $('statusEditor').hidden = true;
+  drawTargets();
+}
+
+$('addStatus').onclick = () => openStatusEditor(null);
+$('stCancel').onclick = closeStatusEditor;
+$('stColors').onclick = (e) => {
+  const b = e.target.closest('button[data-color]');
+  if (!b) return;
+  statusColor = b.dataset.color;
+  for (const x of $('stColors').children) x.setAttribute('aria-checked', String(x === b));
+  renderPreview();
+};
+$('stSave').onclick = async () => {
+  const audience = {
+    contacts: $('stContacts').checked,
+    groups: [...$('stGroups').querySelectorAll('input:checked')].map((i) => i.value),
+    numbers: $('stNumbers').value,
+  };
+  $('stSave').disabled = true;
+  try {
+    const data = editingStatus === 'new'
+      ? await api('targets', 'POST', { ref: 'status', audience, color: statusColor })
+      : await api(`targets/${editingStatus}`, 'POST', { audience, color: statusColor });
+    me = data.user;
+    const st = me.targets.find((x) => x.kind === 'status');
+    if (editingStatus === 'new' && st) { selected.add(st.id); store.set('targets', JSON.stringify([...selected])); }
+    closeStatusEditor();
+    drawMe();
+    setMsg('targetMsg', 'Status saved', 'ok');
+  } catch (err) {
+    setMsg('stMsg', err.message, 'err');
+  } finally {
+    $('stSave').disabled = false;
+  }
+};
+
 $('targetList').onclick = async (e) => {
-  const btn = e.target.closest('button[data-act="del"]');
+  const btn = e.target.closest('button[data-act]');
   if (!btn) return;
   const id = btn.closest('li').dataset.id;
-  if (!confirm('Remove this group/channel? Waiting posts that only go here will be deleted too.')) return;
+  if (btn.dataset.act === 'edit') return openStatusEditor(me.targets.find((x) => x.id === id));
+  if (!confirm('Remove this? Waiting posts that only go here will be deleted too.')) return;
   try {
     const data = await api(`targets/${id}`, 'DELETE');
     me = data.user;
@@ -496,6 +580,7 @@ let lastWaState = null;
 async function loadWhatsApp() {
   let wa;
   try { wa = await api('whatsapp'); } catch { return; }
+  lastWa = wa;
   const [dot, label] = WA_LABEL[wa.state] || ['off', wa.state];
   let text = escapeHtml(label);
   if (wa.state === 'connected' && wa.phone) text += ` as <b>+${escapeHtml(wa.phone)}</b>`;

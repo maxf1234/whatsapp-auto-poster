@@ -38,6 +38,7 @@
     <symbol id="i-key" viewBox="0 0 24 24"><circle cx="7.5" cy="15.5" r="4.5"/><path d="m10.7 12.3 9.8-9.8M17 6l3 3M14.5 8.5l2 2"/></symbol>
     <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a1.5 1.5 0 0 1 1.5-1.5h5A1.5 1.5 0 0 1 16 4v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></symbol>
     <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+    <symbol id="i-status" viewBox="0 0 24 24"><path d="M12 3a9 9 0 0 1 9 9" /><path d="M21 12a9 9 0 0 1-9 9" stroke-dasharray="2.6 2.4"/><path d="M12 21a9 9 0 0 1-9-9M3 12a9 9 0 0 1 9-9" stroke-dasharray="2.6 2.4"/><circle cx="12" cy="12" r="4.2"/></symbol>
     <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
   </svg>
 
@@ -221,10 +222,30 @@
         <section class="card">
           <div class="card-h">
             <span class="ic c-amber"><svg class="i"><use href="#i-users"/></svg></span>
-            <div><h2>Groups & channels</h2><p>Where your posts can go</p></div>
+            <div><h2>Where to post</h2><p>Groups, channels and your Status</p></div>
             <span class="count-pill" id="targetCount"></span>
           </div>
           <ul class="list targets" id="targetList"></ul>
+          <button class="status-add" id="addStatus" type="button" hidden>
+            <span class="t-ic c-green"><svg class="i"><use href="#i-status"/></svg></span>
+            <span><b>Post to my Status</b><br><small>Add your WhatsApp Status as a place to post</small></span>
+          </button>
+          <div class="status-editor" id="statusEditor" hidden>
+            <div class="se-h"><svg class="i"><use href="#i-status"/></svg><b id="stTitle">Post to my Status</b></div>
+            <p class="hint" style="margin-top:4px">WhatsApp only shows a Status to the people it's sent to. Choose who sees yours:</p>
+            <label class="se-check"><input type="checkbox" id="stContacts" /> <span>Your contacts and chats <small id="stContactCount"></small></span></label>
+            <div class="field-h" style="margin-top:14px">Members of these groups</div>
+            <div class="se-groups" id="stGroups"></div>
+            <label for="stNumbers">Also these numbers (one per line, with country code)</label>
+            <textarea id="stNumbers" style="min-height:70px" placeholder="+1 555 123 4567"></textarea>
+            <div class="field-h" style="margin-top:14px">Background for text-only statuses</div>
+            <div class="swatches" id="stColors" role="radiogroup" aria-label="Status background colour"></div>
+            <div class="row">
+              <button class="btn ghost small" id="stCancel" type="button">Cancel</button>
+              <button class="btn primary small" id="stSave" type="button">Save Status</button>
+            </div>
+            <div class="msg" id="stMsg" role="status"></div>
+          </div>
           <div id="groupPick" hidden>
             <label for="groupSelect">Add one of your groups</label>
             <div class="inline-row">

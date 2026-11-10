@@ -11,6 +11,11 @@ number, and have posts go out to their groups and channels on schedule.
 - **Targets:** pick from the groups your number is in, or paste a group
   invite link or a channel link (`whatsapp.com/channel/…`). The resolving
   logic comes from the DealsPulse bot.
+- **Status:** post to your own WhatsApp Status on the same schedules. WhatsApp
+  only shows a Status to the people it is sent to, so you choose who sees it:
+  your contacts and chats (picked up as the phone syncs them after linking),
+  members of chosen groups, and/or a list of numbers. Text-only statuses get
+  a background colour you pick.
 - **Posts:** text with WhatsApp formatting (live preview), an optional
   image, sent to one or many groups/channels at once, with an optional footer
   added to every post.
@@ -58,6 +63,11 @@ number, and have posts go out to their groups and channels on schedule.
 
 Posting to a **channel** needs the linked number to own or admin it. Posting
 to a **group** needs it to be a member, and an admin if only admins can post.
+
+**Status contacts:** the contact list fills in as the phone syncs to the linked
+device, mostly in the first minutes after linking. The Status editor shows how
+many have been picked up. If it stays at 0, unlink and link again, or use
+groups or numbers for the audience instead.
 
 ## Switching on payments (later)
 

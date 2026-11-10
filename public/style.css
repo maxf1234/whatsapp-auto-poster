@@ -389,3 +389,30 @@ textarea { min-height: 150px; resize: vertical; line-height: 1.55; }
 .usage { margin-top: 12px; display: grid; gap: 6px; }
 .usage-bar { height: 8px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--line); overflow: hidden; }
 .usage-bar span { display: block; height: 100%; border-radius: inherit; background: var(--brand-grad); }
+
+/* ---------- Status ---------- */
+.status-add { display: flex; align-items: center; gap: 12px; width: 100%; margin-top: 10px; padding: 12px; text-align: left;
+  border: 1.5px dashed color-mix(in srgb, var(--brand) 40%, var(--line)); border-radius: var(--r); background: var(--brand-bg);
+  color: var(--text); font: inherit; font-size: 14px; cursor: pointer; transition: border-color .15s, filter .15s; }
+.status-add:hover { border-color: var(--brand); filter: brightness(.98); }
+.status-add small { color: var(--muted); }
+.status-editor { margin-top: 10px; padding: 16px; border-radius: var(--r-lg); background: var(--surface-2); border: 1.5px solid var(--brand); }
+.se-h { display: flex; align-items: center; gap: 8px; color: var(--brand); }
+.se-h b { color: var(--text); }
+.se-check { display: flex; gap: 10px; align-items: center; margin: 12px 0 0; padding: 10px 12px; border-radius: var(--r);
+  background: var(--surface); border: 1.5px solid var(--line); color: var(--text); font-size: 14px; cursor: pointer; }
+.se-check:has(input:checked) { border-color: var(--brand); background: var(--brand-bg); }
+.se-check input, .se-groups input { accent-color: var(--brand); width: 17px; height: 17px; margin: 0; flex: none; }
+.se-check small { color: var(--muted); }
+.se-groups { display: grid; gap: 6px; max-height: 190px; overflow: auto; }
+.se-groups label { margin: 0; display: flex; gap: 10px; align-items: center; padding: 8px 10px; border-radius: 12px;
+  background: var(--surface); border: 1px solid var(--line); color: var(--text); font-size: 14px; cursor: pointer; }
+.se-groups label:has(input:checked) { border-color: var(--brand); }
+.swatches { display: flex; gap: 8px; flex-wrap: wrap; }
+.swatches button { width: 32px; height: 32px; border-radius: 50%; border: 3px solid var(--surface); cursor: pointer;
+  box-shadow: 0 0 0 1.5px var(--line-strong); transition: transform .12s, box-shadow .12s; }
+.swatches button[aria-checked="true"] { box-shadow: 0 0 0 2.5px var(--text); transform: scale(1.08); }
+.bubble.status-bubble { background: var(--status-bg, #128c7e); color: #fff; border-radius: 16px; min-height: 160px;
+  display: grid; place-items: center; text-align: center; padding: 18px; }
+.bubble.status-bubble .cap { font-size: 17px; font-weight: 500; }
+.bubble.status-bubble .time { color: rgba(255,255,255,.75); }

@@ -19,7 +19,7 @@ import {
   readCookie, sessionCookie, sessionUser, validEmail, verifyPassword, COOKIE,
 } from './lib/auth.js';
 import { applyStripeEvent, createStripe, limitsOf, planOf, PLANS, verifyStripeSignature } from './lib/billing.js';
-import { createWhatsAppManager } from './lib/whatsapp.js';
+import { createWhatsAppManager, numberJid, STATUS_JID } from './lib/whatsapp.js';
 import { createScheduler, DEFAULT_QUEUE, etas, queueOf } from './lib/scheduler.js';
 import { isTimeZone, monthKey, REPEATS } from './lib/time.js';
 
@@ -29,6 +29,7 @@ const MAX_BODY = 12 * 1024 * 1024; // base64 image + fields
 const MAX_TEXT = 4000;
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml' };
 const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+const STATUS_COLORS = ['#128c7e', '#25d366', '#2f6fec', '#7c4dff', '#e5486c', '#d98a00', '#0f9fa8', '#243137'];
 const yes = (v) => /^(1|true|yes|on)$/i.test(v || '');
 
 export function config(env = process.env) {
@@ -98,11 +99,40 @@ export async function createApp(cfg = config(), { db, wa, now = Date.now, stripe
   // The one place a post actually leaves: WhatsApp, or the log in dry-run.
   async function deliver(user, target, { caption, image }) {
     if (cfg.dryRun) {
-      log.log(`[dry-run] ${user.email} → ${target.name}${image ? ' (+ image)' : ''}\n${caption}\n`);
+      const who = target.kind === 'status' ? ` (seen by: ${audienceSummary(target.audience)})` : '';
+      log.log(`[dry-run] ${user.email} → ${target.name}${who}${image ? ' (+ image)' : ''}\n${caption}\n`);
       return;
     }
-    await wa.get(user.id).send(target.jid, { caption, image });
+    const conn = wa.get(user.id);
+    if (target.kind !== 'status') return conn.send(target.jid, { caption, image });
+    // Status: WhatsApp only shows it to the people listed with it.
+    const statusJidList = await conn.statusAudience(target.audience);
+    if (statusJidList.length < 2) { // just yourself
+      throw fail('Nobody would see this Status — add contacts, groups or numbers to its audience', 400);
+    }
+    await conn.send(STATUS_JID, { caption, image }, { statusJidList, backgroundColor: target.color });
   }
+
+  const audienceSummary = (a = {}) => [
+    a.contacts && 'your contacts',
+    a.groups?.length && `${a.groups.length} group${a.groups.length === 1 ? '' : 's'}`,
+    a.numbers?.length && `${a.numbers.length} number${a.numbers.length === 1 ? '' : 's'}`,
+  ].filter(Boolean).join(', ') || 'nobody yet';
+
+  // { contacts, groups: [jid], numbers: [..] | "one per line" } → clean audience.
+  function parseAudience(raw = {}) {
+    const groups = [...new Set((Array.isArray(raw.groups) ? raw.groups : []).map(String).filter((g) => /^[\w.-]+@g\.us$/.test(g)))];
+    const list = Array.isArray(raw.numbers) ? raw.numbers : String(raw.numbers ?? '').split(/[\n,;]+/);
+    const numbers = [...new Set(list.map(numberJid).filter(Boolean).map((j) => j.split('@')[0]))];
+    if (groups.length > 100) throw fail('Pick at most 100 groups');
+    if (numbers.length > 5000) throw fail('At most 5,000 numbers');
+    const audience = { contacts: Boolean(raw.contacts), groups, numbers };
+    if (!audience.contacts && !groups.length && !numbers.length) {
+      throw fail('Choose who sees your Status: your contacts, members of some groups, or a list of numbers');
+    }
+    return audience;
+  }
+  const parseColor = (c) => (STATUS_COLORS.includes(String(c).toLowerCase()) ? String(c).toLowerCase() : STATUS_COLORS[0]);
   const scheduler = createScheduler({ db, deliver, now, log, gapMs: cfg.dryRun ? 0 : undefined });
 
   // ---------- views ----------
@@ -130,7 +160,9 @@ export async function createApp(cfg = config(), { db, wa, now = Date.now, stripe
       subscription: user.subscription?.status ?? null,
       canManageBilling: Boolean(user.stripeCustomerId),
       queue: (({ intervalMin, startHour, endHour, paused, error }) => ({ intervalMin, startHour, endHour, paused, error }))(user.queue),
-      targets: user.targets.map(({ id, name, kind }) => ({ id, name, kind })),
+      targets: user.targets.map(({ id, name, kind, audience, color }) => (kind === 'status'
+        ? { id, name, kind, audience, color, audienceSummary: audienceSummary(audience) }
+        : { id, name, kind })),
     };
   }
 
@@ -205,6 +237,7 @@ export async function createApp(cfg = config(), { db, wa, now = Date.now, stripe
   const open = {
     'GET /api/config': () => ({
       appName: cfg.appName,
+      statusColors: STATUS_COLORS,
       signupsOpen: cfg.signupsOpen,
       billingEnabled: cfg.billingEnabled,
       proPriceLabel: cfg.proPriceLabel,
@@ -322,12 +355,15 @@ export async function createApp(cfg = config(), { db, wa, now = Date.now, stripe
     // ----- Targets (groups / channels to post to) -----
 
     'POST /api/targets': async (req, user) => {
-      const { ref } = await readJson(req);
+      const { ref, audience, color } = await readJson(req);
       if (!String(ref ?? '').trim()) throw fail('Paste a link or pick a group');
+      const isStatus = String(ref).trim() === 'status';
       if (user.targets.length >= limitsOf(user, cfg).maxTargets) {
         throw fail(`Your plan allows ${limitsOf(user, cfg).maxTargets} groups/channels${cfg.billingEnabled ? ' — upgrade for more' : ''}`, 402);
       }
-      const resolved = cfg.dryRun && wa.get(user.id).status().state !== 'connected'
+      const resolved = isStatus
+        ? { jid: STATUS_JID, name: 'My Status', kind: 'status', audience: parseAudience(audience), color: parseColor(color) }
+        : cfg.dryRun && wa.get(user.id).status().state !== 'connected'
         ? { jid: String(ref).trim(), name: String(ref).trim().slice(0, 60), kind: 'test' }
         : await wa.get(user.id).resolve(ref);
       if (user.targets.some((t) => t.jid === resolved.jid)) throw fail(`${resolved.name} is already added`, 409);
@@ -479,6 +515,16 @@ export async function createApp(cfg = config(), { db, wa, now = Date.now, stripe
   // Routes with an id in the path.
   async function dynamic(req, user, path) {
     let m = /^\/api\/targets\/([\w-]+)$/.exec(path);
+    if (m && req.method === 'POST') { // edit a Status target's audience / colour
+      const target = user.targets.find((t) => t.id === m[1]);
+      if (!target) throw fail('Not found', 404);
+      if (target.kind !== 'status') throw fail('Only your Status has settings to edit');
+      const { audience, color } = await readJson(req);
+      if (audience !== undefined) target.audience = parseAudience(audience);
+      if (color !== undefined) target.color = parseColor(color);
+      await db.save();
+      return { user: userView(user) };
+    }
     if (m && req.method === 'DELETE') {
       const i = user.targets.findIndex((t) => t.id === m[1]);
       if (i < 0) throw fail('Not found', 404);
