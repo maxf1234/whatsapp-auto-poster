@@ -154,6 +154,11 @@
       <div class="price-grid" id="landingPlans"></div>
     </section>
 
+    <section class="l-section" id="reviews" hidden>
+      <div class="l-head"><h2>What customers say</h2></div>
+      <div class="f-grid" id="reviewGrid"></div>
+    </section>
+
     <section class="l-section alt" id="faq">
       <div class="l-head"><h2>Questions</h2></div>
       <div class="faq">
@@ -273,6 +278,7 @@
             <span class="badge pro" id="repeatPro" hidden>Pro</span>
           </div>
           <div class="hint" id="whenHint"></div>
+          <div class="hint" id="whenTip" style="margin-top:4px"></div>
 
           <div class="row actions">
             <button class="btn ghost" id="clear" type="button">Clear</button>
@@ -332,6 +338,12 @@
           <div class="card-h">
             <span class="ic"><svg class="i"><use href="#i-phone"/></svg></span>
             <div><h2>WhatsApp</h2><p>The number your posts come from</p></div>
+          </div>
+          <div class="num-row" id="numRow" hidden>
+            <select id="numSelect" aria-label="WhatsApp number"></select>
+            <button class="btn ghost small" id="numRename" type="button" title="Rename this number">Rename</button>
+            <button class="btn ghost small" id="numRemove" type="button" title="Remove this number" hidden>Remove</button>
+            <button class="btn soft small" id="numAdd" type="button">Add number</button>
           </div>
           <div id="waStatus" class="wa-status">Checking…</div>
           <div id="waLink" hidden>
@@ -434,6 +446,7 @@
           <a href="#/account/posting" data-sec="posting"><svg class="i"><use href="#i-pen"/></svg>Posting</a>
           <a href="#/account/appearance" data-sec="appearance"><svg class="i"><use href="#i-palette"/></svg>Appearance</a>
           <a href="#/account/plan" data-sec="plan"><svg class="i"><use href="#i-card"/></svg>Plan &amp; billing</a>
+          <a href="#/account/team" data-sec="team"><svg class="i"><use href="#i-users"/></svg>Team</a>
           <a href="#/account/refer" data-sec="refer"><svg class="i"><use href="#i-star"/></svg>Refer a friend</a>
           <a href="#/account/security" data-sec="security"><svg class="i"><use href="#i-lock"/></svg>Security</a>
           <a href="#/account/data" data-sec="data"><svg class="i"><use href="#i-download"/></svg>Your data</a>
@@ -457,6 +470,37 @@
             <div class="card-h"><span class="ic"><svg class="i"><use href="#i-phone"/></svg></span><div><h2>WhatsApp</h2><p>The number your posts come from</p></div></div>
             <div class="wa-status" id="ovWa">Checking…</div>
             <div class="row"><a class="btn ghost small" href="#/">Manage on the dashboard</a></div>
+          </section>
+          <section class="card">
+            <div class="card-h"><span class="ic"><svg class="i"><use href="#i-star"/></svg></span><div><h2>Leave a review</h2><p>With your OK it may appear on our home page</p></div></div>
+            <div class="grid2">
+              <div><label for="rvName">Name to show</label><input type="text" id="rvName" placeholder="e.g. Dana, Fresh Deals channel" /></div>
+              <div><label for="rvRating">Rating</label><select id="rvRating"><option value="5">★★★★★</option><option value="4">★★★★☆</option><option value="3">★★★☆☆</option><option value="2">★★☆☆☆</option><option value="1">★☆☆☆☆</option></select></div>
+            </div>
+            <label for="rvText">Your review</label>
+            <textarea id="rvText" style="min-height:80px" maxlength="400" placeholder="What has it changed for you?"></textarea>
+            <div class="row"><button class="btn primary" id="rvSend" type="button">Send review</button></div>
+            <div class="msg" id="rvMsg" role="status"></div>
+          </section>
+        </div>
+
+        <!-- Team -->
+        <div class="sec" data-sec="team" hidden>
+          <section class="card" id="teamOwner">
+            <div class="card-h"><span class="ic"><svg class="i"><use href="#i-users"/></svg></span><div><h2>Team <span class="badge pro" id="teamPro" hidden>Business</span></h2><p>People you invite can write and schedule posts from your account</p></div>
+              <span class="count-pill" id="teamCount"></span></div>
+            <ul class="list" id="teamList"></ul>
+            <label for="teamEmail">Invite by email</label>
+            <div class="inline-row"><input type="email" id="teamEmail" placeholder="colleague@example.com" /><button class="btn primary small" id="teamInvite" type="button">Invite</button></div>
+            <div class="hint">They get their own login. They can post, schedule and manage places, but can’t see billing or invite others.</div>
+            <div class="msg" id="teamMsg" role="status"></div>
+            <div id="teamLinkBox" hidden><label for="teamLink">Invite link (send it to them)</label>
+              <div class="inline-row"><input type="text" id="teamLink" readonly /><button class="btn soft small" id="teamCopy" type="button">Copy</button></div></div>
+          </section>
+          <section class="card" id="teamMember" hidden>
+            <div class="card-h"><span class="ic"><svg class="i"><use href="#i-users"/></svg></span><div><h2>Team</h2><p id="teamMemberText"></p></div></div>
+            <div class="row" style="margin-top:0"><button class="btn danger" id="teamLeave" type="button">Leave this team</button></div>
+            <div class="msg" id="teamLeaveMsg" role="status"></div>
           </section>
         </div>
 
@@ -631,6 +675,23 @@
       <section class="card">
         <div class="card-h"><span class="ic"><svg class="i"><use href="#i-users"/></svg></span><div><h2>New accounts</h2><p>Per week, last 8 weeks</p></div></div>
         <div class="bars" id="adminChart"></div>
+      </section>
+      <section class="card">
+        <div class="card-h"><span class="ic"><svg class="i"><use href="#i-settings"/></svg></span><div><h2>Site settings</h2><p>Your brand on the site. Leave a box empty to use the default.</p></div></div>
+        <div class="grid2">
+          <div><label for="siteName">Site name</label><input type="text" id="siteName" /></div>
+          <div><label for="siteColor">Brand colour</label><div class="inline-row"><input type="text" id="siteColor" placeholder="#0b7a5c" /><input type="color" id="siteColorPick" aria-label="Pick a colour" /></div></div>
+          <div><label for="sitePromo">Banner on the home page</label><input type="text" id="sitePromo" placeholder="Launch offer: 30% off with code LAUNCH30" /></div>
+          <div><label for="siteVideo">Demo video link</label><input type="text" id="siteVideo" placeholder="https://www.youtube.com/embed/…" /></div>
+          <div><label for="siteSupport">Support email</label><input type="email" id="siteSupport" /></div>
+        </div>
+        <div class="row"><button class="btn primary" id="siteSave" type="button">Save site settings</button></div>
+        <div class="msg" id="siteMsg" role="status"></div>
+      </section>
+      <section class="card">
+        <div class="card-h"><span class="ic"><svg class="i"><use href="#i-star"/></svg></span><div><h2>Customer reviews</h2><p>Approved reviews show on the home page</p></div></div>
+        <ul class="list" id="rvList"></ul>
+        <div class="msg" id="rvAdminMsg" role="status"></div>
       </section>
       <section class="card">
         <div class="toolbar">

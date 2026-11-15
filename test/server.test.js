@@ -752,6 +752,9 @@ test('team: invite, join, shared workspace, personal identity, remove', async (t
 
   const m = env.client();
   await m('signup', 'POST', { email: 'helper@example.com', password: 'hunter2hunter2', name: 'Helper', invite: token });
+  const again = (await env.client()('login', 'POST', { email: 'helper@example.com', password: 'hunter2hunter2' })).body.user;
+  assert.equal(again.email, 'helper@example.com', 'logging in shows the member, not the owner');
+  assert.equal(again.team.role, 'member');
   let me = (await m('me')).body.user;
   assert.equal(me.email, 'helper@example.com');
   assert.equal(me.isAdmin, false);

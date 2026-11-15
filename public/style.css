@@ -586,3 +586,12 @@ label.chk input { accent-color: var(--brand); width: 16px; height: 16px; margin:
 .video { max-width: 860px; margin: 0 auto; aspect-ratio: 16 / 9; border-radius: var(--r-xl); overflow: hidden; border: 1px solid var(--line); box-shadow: var(--shadow-lg); background: #000; }
 .video iframe, .video video { width: 100%; height: 100%; border: 0; display: block; }
 .msg a { color: inherit; font-weight: 600; }
+
+/* ---------- numbers, reviews ---------- */
+.num-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.num-row select { flex: 1 1 140px; width: auto; }
+.review { display: flex; flex-direction: column; gap: 10px; }
+.review .stars { color: #e0a100; letter-spacing: 2px; }
+.review p { color: var(--text-2) !important; font-size: 15px !important; }
+.review b { font-size: 13.5px; }
+input[type=color] { width: 44px; height: 38px; padding: 3px; border-radius: var(--r); border: 1px solid var(--line-strong); background: var(--surface); cursor: pointer; flex: none !important; }

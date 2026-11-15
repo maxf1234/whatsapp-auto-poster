@@ -74,9 +74,23 @@ const setAuthTab = (isSignup) => setAuthMode(isSignup ? 'signup' : 'login');
 $('forgotLink').onclick = (e) => { e.preventDefault(); setAuthMode('forgot'); };
 $('backToLogin').onclick = (e) => { e.preventDefault(); history.replaceState(null, '', location.pathname); setAuthMode('login'); };
 
-// A referral link (?ref=code) is remembered until the visitor signs up.
+// A referral link (?ref=code) or team invite (?invite=token) is remembered
+// until the visitor signs up or logs in.
 const refParam = new URLSearchParams(location.search).get('ref');
 if (refParam) store.set('ref', refParam);
+const inviteParam = new URLSearchParams(location.search).get('invite');
+if (inviteParam) store.set('invite', inviteParam);
+
+// The site's own brand colour, set by an admin.
+function applyBrand(c) {
+  if (!/^#[0-9a-f]{6}$/i.test(c || '')) return;
+  const light = `--brand:${c};--brand-2:color-mix(in srgb,${c} 85%,#000);--brand-ink:#fff;--brand-grad:linear-gradient(180deg,${c},color-mix(in srgb,${c} 86%,#000));--brand-bg:color-mix(in srgb,${c} 10%,transparent);--brand-line:color-mix(in srgb,${c} 32%,transparent);--focus:color-mix(in srgb,${c} 24%,transparent);`;
+  const d = `color-mix(in srgb,${c} 62%,#fff)`;
+  const dark = `--brand:${d};--brand-2:color-mix(in srgb,${c} 50%,#fff);--brand-ink:#0b0d11;--brand-grad:linear-gradient(180deg,${d},color-mix(in srgb,${c} 72%,#fff));--brand-bg:color-mix(in srgb,${c} 16%,transparent);--brand-line:color-mix(in srgb,${c} 40%,transparent);--focus:color-mix(in srgb,${c} 34%,transparent);`;
+  let el = document.getElementById('brandStyle');
+  if (!el) { el = document.createElement('style'); el.id = 'brandStyle'; document.head.append(el); }
+  el.textContent = `:root{${light}}:root[data-theme="dark"]{${dark}}@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){${dark}}}`;
+}
 
 // Landing-page buttons jump to the form on the right tab.
 function goAuth(isSignup) {
@@ -96,6 +110,7 @@ const planFeatures = (p, paid = p.recurring) => `<ul>
     <li class="${p.recurring ? '' : 'no'}">${p.recurring ? 'Repeating posts (daily to monthly)' : 'No repeating posts'}</li>
     <li class="${paid ? '' : 'no'}">Link click tracking${cfg.aiEnabled ? ' and AI writer' : ''}</li>
     <li class="${paid ? '' : 'no'}">Post from an RSS feed</li>
+    ${p.maxNumbers > 1 ? `<li>${p.maxNumbers} WhatsApp numbers</li><li>${p.maxMembers} team members</li>` : ''}
     ${cfg.freeBranding ? `<li class="${paid ? '' : 'no'}">${paid ? 'No' : 'Adds a'} “Sent with ${escapeHtml(cfg.appName || '')}” line</li>` : ''}
   </ul>`;
 
@@ -123,12 +138,15 @@ function drawLanding() {
       <div class="plan featured"><h3>${escapeHtml(plans.pro.label)} <span class="badge pro">Most popular</span></h3>
         <div class="price">${escapeHtml(cfg.priceLabels?.pro.month || cfg.proPriceLabel || '')}</div>${cfg.yearly?.pro ? `<div class="muted">or ${escapeHtml(cfg.priceLabels.pro.year)}</div>` : ''}${planFeatures(plans.pro, true)}
         <button class="btn pro" type="button" data-go>${cfg.trialDays ? `Try free for ${cfg.trialDays} days` : `Get ${escapeHtml(plans.pro.label)}`}</button></div>` +
-      (plans.business ? `<div class="plan"><h3>${escapeHtml(plans.business.label)}</h3>
-        <div class="price">${escapeHtml(cfg.priceLabels.business.month)}</div>${cfg.yearly?.business ? `<div class="muted">or ${escapeHtml(cfg.priceLabels.business.year)}</div>` : ''}${planFeatures(plans.business, true)}
-        <button class="btn ghost" type="button" data-go>Start free</button></div>` : '');
-    if (plans.business) $('landingPlans').style.maxWidth = '1072px';
+      Object.entries(plans).filter(([id]) => id !== 'free' && id !== 'pro').map(([id, p]) => `<div class="plan"><h3>${escapeHtml(p.label)}</h3>
+        <div class="price">${escapeHtml(cfg.priceLabels[id].month)}</div>${cfg.yearly?.[id] ? `<div class="muted">or ${escapeHtml(cfg.priceLabels[id].year)}</div>` : ''}${planFeatures(p, true)}
+        <button class="btn ghost" type="button" data-go>Start free</button></div>`).join('');
+    if (Object.keys(plans).length > 2) $('landingPlans').style.maxWidth = '1072px';
   }
   for (const b of $('landingPlans').querySelectorAll('[data-go]')) b.onclick = () => goAuth(true);
+  const reviews = cfg.reviews ?? [];
+  $('reviews').hidden = !reviews.length;
+  $('reviewGrid').innerHTML = reviews.map((r) => `<div class="f-card review"><span class="stars" aria-label="${r.rating} out of 5">${'★'.repeat(r.rating)}${'☆'.repeat(5 - r.rating)}</span><p>“${escapeHtml(r.text)}”</p><b>${escapeHtml(r.name)}</b></div>`).join('');
 }
 $('tabLogin').onclick = () => setAuthTab(false);
 $('tabSignup').onclick = () => {
@@ -150,7 +168,7 @@ $('authForm').onsubmit = async (e) => {
       history.replaceState(null, '', `${location.pathname}#/`);
     } else {
       const body = { email: $('aEmail').value, password: $('aPw').value };
-      if (signup) Object.assign(body, { name: $('aName').value, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, ref: store.get('ref') || undefined });
+      if (signup) Object.assign(body, { name: $('aName').value, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, ref: store.get('ref') || undefined, invite: store.get('invite') || undefined });
       data = await api(signup ? 'signup' : 'login', 'POST', body);
     }
     $('aPw').value = '';
@@ -179,7 +197,7 @@ function showAuth() {
 
 // ---------- Views ----------
 
-const SECTIONS = ['overview', 'profile', 'posting', 'appearance', 'plan', 'refer', 'security', 'data'];
+const SECTIONS = ['overview', 'profile', 'team', 'posting', 'appearance', 'plan', 'refer', 'security', 'data'];
 let section = 'overview';
 
 function route() {
@@ -213,6 +231,7 @@ function showApp() {
   loadPosts();
   loadWhatsApp();
   loadLinks();
+  acceptInvite();
   clearImage();
   startPolling();
   const billing = new URLSearchParams(location.search).get('billing');
@@ -221,6 +240,22 @@ function showApp() {
     banner(billing === 'success' ? 'Thanks! Pro is switching on. It can take a few seconds.' : 'Checkout cancelled. Nothing was charged.');
     if (billing === 'success') setTimeout(refreshMe, 4000);
   }
+}
+
+// A team invite opened before logging in: join now.
+async function acceptInvite() {
+  const token = store.get('invite');
+  if (!token) return;
+  store.set('invite', '');
+  history.replaceState(null, '', location.pathname + location.hash);
+  if (me.team.role === 'member') return; // joined while signing up
+  try {
+    me = (await api('team/join', 'POST', { token })).user;
+    drawMe();
+    route();
+    loadPosts();
+    banner(`You’ve joined ${me.team.owner}’s team.`);
+  } catch (err) { banner(`Couldn’t join the team: ${err.message}`); }
 }
 
 function banner(text) {
@@ -266,6 +301,7 @@ function drawMe() {
   $('avatar').textContent = initials(me);
   $('avatar').title = me.email;
   applyPrefs(me.prefs);
+  drawNumbers();
   drawTargets();
   drawWhen();
   drawQueueSettings(me.queue);
@@ -394,10 +430,10 @@ function drawTargets() {
 
   $('targetCount').textContent = `${t.length} / ${me.limits.maxTargets}`;
   $('targetList').innerHTML = t.length
-    ? t.map((x) => `<li data-id="${x.id}"><span class="t-ic ${kindOf(x).color}">${icon(kindOf(x).icon)}</span><div class="lbody">${escapeHtml(x.name)}<div class="muted">${x.kind === 'status' ? `Seen by ${escapeHtml(x.audienceSummary)}` : kindOf(x).label}</div></div>
+    ? t.map((x) => `<li data-id="${x.id}"><span class="t-ic ${kindOf(x).color}">${icon(kindOf(x).icon)}</span><div class="lbody">${escapeHtml(x.name)}<div class="muted">${x.kind === 'status' ? `Seen by ${escapeHtml(x.audienceSummary)}` : kindOf(x).label}${me.numbers.length > 1 ? ` · ${escapeHtml(me.numbers.find((n) => n.id === x.numberId)?.label ?? '')}` : ''}</div></div>
         <div class="lbtns">${x.kind === 'status' ? '<button type="button" data-act="edit">Edit</button>' : ''}<button type="button" data-act="del" aria-label="Remove ${escapeHtml(x.name)}">✕</button></div></li>`).join('')
     : '<li class="empty">Nowhere to post yet</li>';
-  $('addStatus').hidden = t.some((x) => x.kind === 'status') || !$('statusEditor').hidden;
+  $('addStatus').hidden = t.some((x) => x.kind === 'status' && x.numberId === numberId) || !$('statusEditor').hidden;
 }
 
 // ---------- Status audience editor ----------
@@ -455,7 +491,7 @@ $('stSave').onclick = async () => {
   $('stSave').disabled = true;
   try {
     const data = editingStatus === 'new'
-      ? await api('targets', 'POST', { ref: 'status', audience, color: statusColor })
+      ? await api('targets', 'POST', { ref: 'status', audience, color: statusColor, number: numberId })
       : await api(`targets/${editingStatus}`, 'POST', { audience, color: statusColor });
     me = data.user;
     const st = me.targets.find((x) => x.kind === 'status');
@@ -487,7 +523,7 @@ $('targetList').onclick = async (e) => {
 async function addTarget(ref) {
   setMsg('targetMsg', 'Adding…');
   try {
-    me = (await api('targets', 'POST', { ref })).user;
+    me = (await api('targets', 'POST', { ref, number: numberId })).user;
     const added = me.targets.at(-1);
     if (added) { selected.add(added.id); store.set('targets', JSON.stringify([...selected])); }
     drawMe();
@@ -501,7 +537,7 @@ $('addGroup').onclick = () => $('groupSelect').value && addTarget($('groupSelect
 
 async function loadGroups() {
   try {
-    const { groups } = await api('whatsapp/groups');
+    const { groups } = await api(`whatsapp/groups${nq()}`);
     const free = groups.filter((g) => !g.added);
     $('groupSelect').innerHTML = free.length
       ? free.map((g) => `<option value="${escapeHtml(g.jid)}">${escapeHtml(g.name)}${g.announce ? ' (admins only)' : ''}</option>`).join('')
@@ -790,6 +826,9 @@ async function loadLinks() {
     $('bestHours').textContent = d.bestHours.length
       ? `Your audience clicks most around ${d.bestHours.map(fmtHour).join(', ')}. Try scheduling then.`
       : 'After 10 clicks, this shows the hours your audience is most active.';
+    // Shown under "When" in the composer too, whichever signal we have.
+    $('whenTip').textContent = d.source === 'clicks' ? `Tip: your links get the most clicks around ${d.bestHours.map(fmtHour).join(', ')}.`
+      : d.source === 'activity' ? `Tip: your groups are busiest around ${d.bestHours.map(fmtHour).join(', ')}.` : '';
     $('linksList').innerHTML = d.links.slice(0, 8).map((l) => `<li class="mid"><span class="count-pill" style="margin:0">${l.clicks}</span>
       <div class="lbody"><div class="ltext" style="margin:0">${escapeHtml(l.url.replace(/^https?:\/\//, ''))}</div><div class="lwhen" style="margin-top:3px">${escapeHtml(summary(l.label))}</div></div></li>`).join('');
   } catch {}
@@ -860,9 +899,59 @@ const WA_LABEL = {
 };
 let lastWaState = null;
 
+let numberId = store.get('number') || ''; // which linked number the WhatsApp card shows
+const nq = () => (numberId ? `?n=${numberId}` : '');
+function drawNumbers() {
+  if (!me.numbers.some((n) => n.id === numberId)) numberId = '';
+  const many = me.numbers.length > 1;
+  $('numRow').hidden = !many && !(cfg.plans?.business || cfg.plans?.agency || me.limits.maxNumbers > 1);
+  $('numSelect').innerHTML = me.numbers.map((n) => `<option value="${n.id}" ${n.id === numberId ? 'selected' : ''}>${escapeHtml(n.label)}</option>`).join('');
+  $('numRemove').hidden = !numberId;
+}
+$('numSelect').onchange = () => {
+  numberId = $('numSelect').value;
+  store.set('number', numberId);
+  lastWaState = null;
+  $('waStatus').textContent = 'Checking…';
+  drawNumbers();
+  drawTargets();
+  loadWhatsApp();
+};
+$('numAdd').onclick = async () => {
+  const label = prompt('Name this number (for example a client or brand):');
+  if (label === null) return;
+  try {
+    me = (await api('numbers', 'POST', { label })).user;
+    numberId = me.numbers.at(-1).id;
+    store.set('number', numberId);
+    lastWaState = null;
+    drawMe();
+    loadWhatsApp();
+  } catch (err) { showErr('targetMsg', err); }
+};
+$('numRename').onclick = async () => {
+  const label = prompt('New name for this number:', me.numbers.find((n) => n.id === numberId)?.label);
+  if (!label) return;
+  try { me = (await api(`numbers/${numberId || 'main'}`, 'POST', { label })).user; drawMe(); }
+  catch (err) { showErr('targetMsg', err); }
+};
+$('numRemove').onclick = async () => {
+  if (!confirm('Remove this number? Its places are removed too, and posts that only went there are deleted.')) return;
+  try {
+    const data = await api(`numbers/${numberId}`, 'DELETE');
+    me = data.user;
+    numberId = '';
+    store.set('number', '');
+    lastWaState = null;
+    drawMe();
+    drawPosts(data);
+    loadWhatsApp();
+  } catch (err) { showErr('targetMsg', err); }
+};
+
 async function loadWhatsApp() {
   let wa;
-  try { wa = await api('whatsapp'); } catch { return; }
+  try { wa = await api(`whatsapp${nq()}`); } catch { return; }
   lastWa = wa;
   const [dot, label] = WA_LABEL[wa.state] || ['off', wa.state];
   let text = escapeHtml(label);
@@ -887,7 +976,7 @@ $('pair').onclick = async () => {
   $('pair').disabled = true;
   $('waStatus').textContent = 'Getting a code…';
   try {
-    await api('whatsapp/pair', 'POST', { phone: $('phone').value });
+    await api(`whatsapp/pair${nq()}`, 'POST', { phone: $('phone').value });
     await loadWhatsApp();
   } catch (err) {
     $('waStatus').innerHTML = `<span class="dot off"></span><span class="err">${escapeHtml(err.message)}</span>`;
@@ -898,7 +987,7 @@ $('pair').onclick = async () => {
 
 $('unlink').onclick = async () => {
   if (!confirm('Unlink WhatsApp? Scheduled posts will wait until you link again.')) return;
-  await api('whatsapp/unlink', 'POST').catch((err) => alert(err.message));
+  await api(`whatsapp/unlink${nq()}`, 'POST').catch((err) => alert(err.message));
   loadWhatsApp();
 };
 
@@ -950,6 +1039,7 @@ function drawAccount() {
   if (section === 'security') loadSessions();
 
   drawPosting();
+  drawTeam();
   $('refLink').value = `${location.origin}${location.pathname}?ref=${me.referral.code}`;
   $('refTiles').innerHTML = tile('Friends signed up', String(me.referral.signups)) + tile('Upgraded', String(me.referral.paid)) + tile('Free months earned', String(me.referral.paid));
   $('refNote').textContent = me.proUntil ? `You have free Pro until ${fmtDate(me.proUntil)}.`
@@ -977,7 +1067,7 @@ function drawAccount() {
   $('plans').innerHTML = Object.entries(cfg.plans).map(([id, p]) => {
     const yearly = planInterval === 'year' && cfg.yearly?.[id];
     const price = id === 'free' ? 'Free forever' : cfg.priceLabels[id][yearly ? 'year' : 'month'];
-    const button = id === 'free' || me.billing ? '' : `<button class="btn ${id === 'pro' ? 'pro' : 'ghost'}" type="button" data-plan="${id}" data-interval="${yearly ? 'year' : 'month'}">Choose ${escapeHtml(p.label)}</button>`;
+    const button = id === 'free' || me.billing || me.team.role === 'member' ? '' : `<button class="btn ${id === 'pro' ? 'pro' : 'ghost'}" type="button" data-plan="${id}" data-interval="${yearly ? 'year' : 'month'}">Choose ${escapeHtml(p.label)}</button>`;
     return `<div class="plan ${id === current ? 'current' : id === 'pro' ? 'featured' : ''}">
       <h3>${escapeHtml(p.label)} ${id === current ? '<span class="badge">Current</span>' : id === 'pro' ? '<span class="badge pro">Most popular</span>' : ''}</h3>
       <div class="price">${escapeHtml(price)}</div>${planFeatures(p, id !== 'free')}${button}</div>`;
@@ -1004,6 +1094,57 @@ $('refCopy').onclick = async () => {
   try { await navigator.clipboard.writeText($('refLink').value); } catch { document.execCommand('copy'); }
   $('refCopy').textContent = 'Copied';
   setTimeout(() => { $('refCopy').textContent = 'Copy'; }, 1500);
+};
+
+function drawTeam() {
+  const member = me.team.role === 'member';
+  $('teamOwner').hidden = member;
+  $('teamMember').hidden = !member;
+  if (member) { $('teamMemberText').textContent = `You’re posting as part of ${me.team.owner}’s team.`; return; }
+  const max = me.limits.maxMembers;
+  $('teamPro').hidden = max > 0 || !cfg.billingEnabled;
+  $('teamCount').textContent = max ? `${me.team.members.length + me.team.invites.length} / ${max}` : '';
+  $('teamList').innerHTML = [
+    ...me.team.members.map((m) => `<li class="mid" data-kind="members" data-id="${m.id}"><span class="avatar">${escapeHtml(initials(m))}</span><div class="lbody"><div class="ltext" style="margin:0">${escapeHtml(m.name || m.email)}</div><div class="lwhen" style="margin-top:3px">${escapeHtml(m.email)}</div></div><div class="lbtns"><button type="button" data-act="del">Remove</button></div></li>`),
+    ...me.team.invites.map((m) => `<li class="mid" data-kind="invites" data-id="${m.id}"><span class="t-ic c-amber">${icon('mail')}</span><div class="lbody"><div class="ltext" style="margin:0">${escapeHtml(m.email)}</div><div class="lwhen" style="margin-top:3px">Invited, not joined yet</div></div><div class="lbtns"><button type="button" data-act="del">Cancel</button></div></li>`),
+  ].join('') || '<li class="empty">Nobody on your team yet.</li>';
+}
+$('teamInvite').onclick = async () => {
+  try {
+    const data = await api('team/invite', 'POST', { email: $('teamEmail').value });
+    me = data.user;
+    $('teamEmail').value = '';
+    drawTeam();
+    $('teamLinkBox').hidden = false;
+    $('teamLink').value = data.link;
+    setMsg('teamMsg', data.emailed ? 'Invite emailed. You can also send them the link below.' : 'Invite created. Send them the link below.', 'ok');
+  } catch (err) { showErr('teamMsg', err); }
+};
+$('teamCopy').onclick = async () => {
+  $('teamLink').select();
+  try { await navigator.clipboard.writeText($('teamLink').value); } catch { document.execCommand('copy'); }
+  $('teamCopy').textContent = 'Copied';
+  setTimeout(() => { $('teamCopy').textContent = 'Copy'; }, 1500);
+};
+$('teamList').onclick = async (e) => {
+  const btn = e.target.closest('button[data-act="del"]');
+  if (!btn) return;
+  const li = btn.closest('li');
+  if (li.dataset.kind === 'members' && !confirm('Remove this person from your team?')) return;
+  try { me = (await api(`team/${li.dataset.kind}/${li.dataset.id}`, 'DELETE')).user; drawTeam(); }
+  catch (err) { setMsg('teamMsg', err.message, 'err'); }
+};
+$('teamLeave').onclick = async () => {
+  if (!confirm('Leave this team? You’ll go back to your own account.')) return;
+  try { me = (await api('team/leave', 'POST')).user; drawMe(); drawAccount(); loadPosts(); loadWhatsApp(); }
+  catch (err) { setMsg('teamLeaveMsg', err.message, 'err'); }
+};
+$('rvSend').onclick = async () => {
+  try {
+    await api('reviews', 'POST', { text: $('rvText').value, rating: $('rvRating').value, name: $('rvName').value });
+    $('rvText').value = '';
+    setMsg('rvMsg', 'Thank you! Your review was sent.', 'ok');
+  } catch (err) { setMsg('rvMsg', err.message, 'err'); }
 };
 
 // Templates and feeds, on the Posting section.
@@ -1144,8 +1285,45 @@ async function loadAdmin() {
     const max = Math.max(1, ...stats.signupsByWeek);
     $('adminChart').innerHTML = stats.signupsByWeek.map((n, i) => `<div><span>${n}</span><i style="height:${Math.round((n / max) * 70)}px"></i><span>${i === 7 ? 'now' : `-${7 - i}w`}</span></div>`).join('');
     drawAdmin();
+    loadSite();
   } catch (err) { setMsg('adminMsg', err.message, 'err'); }
 }
+
+const SITE_FIELDS = { siteName: 'appName', siteColor: 'brandColor', sitePromo: 'promoText', siteVideo: 'demoVideoUrl', siteSupport: 'supportEmail' };
+async function loadSite() {
+  const { site, defaults, reviews } = await api('admin/site');
+  for (const [id, key] of Object.entries(SITE_FIELDS)) {
+    if (document.activeElement !== $(id)) $(id).value = site[key];
+    if (defaults[key]) $(id).placeholder = defaults[key];
+  }
+  $('siteColorPick').value = /^#[0-9a-f]{6}$/i.test(site.brandColor) ? site.brandColor : '#0b7a5c';
+  $('rvList').innerHTML = reviews.length ? reviews.map((r) => `<li data-id="${r.id}"><div class="lbody">
+      <div class="lwhen"><span class="chip ${r.approved ? 'c-green' : 'c-amber'}">${r.approved ? 'On the home page' : 'Waiting'}</span><span>${'★'.repeat(r.rating)} · ${escapeHtml(r.name)} · ${escapeHtml(r.email)}</span></div>
+      <div style="margin-top:6px">${escapeHtml(r.text)}</div>
+      <div class="lbtns"><button type="button" data-act="approve" data-on="${r.approved ? '' : '1'}">${r.approved ? 'Hide' : 'Approve'}</button><button type="button" data-act="del">Delete</button></div></div></li>`).join('')
+    : '<li class="empty">No reviews yet. Customers can leave one from Account → Overview.</li>';
+}
+$('siteColorPick').oninput = () => { $('siteColor').value = $('siteColorPick').value; };
+$('siteSave').onclick = async () => {
+  try {
+    await api('admin/site', 'POST', Object.fromEntries(Object.entries(SITE_FIELDS).map(([id, key]) => [key, $(id).value])));
+    cfg = await fetch('api/config').then((r) => r.json());
+    applyBrand(cfg.brandColor);
+    if (!cfg.brandColor) document.getElementById('brandStyle')?.remove();
+    drawMe();
+    setMsg('siteMsg', 'Saved', 'ok');
+  } catch (err) { setMsg('siteMsg', err.message, 'err'); }
+};
+$('rvList').onclick = async (e) => {
+  const btn = e.target.closest('button[data-act]');
+  if (!btn) return;
+  const id = btn.closest('li').dataset.id;
+  try {
+    if (btn.dataset.act === 'del') { if (!confirm('Delete this review?')) return; await api(`admin/reviews/${id}`, 'DELETE'); }
+    else await api(`admin/reviews/${id}`, 'POST', { approved: !!btn.dataset.on });
+    loadSite();
+  } catch (err) { setMsg('rvAdminMsg', err.message, 'err'); }
+};
 
 function drawAdmin() {
   const q = $('adminSearch').value.trim().toLowerCase();
@@ -1165,6 +1343,7 @@ function drawAdmin() {
           <option value="" ${u.planOverride ? '' : 'selected'}>Automatic</option>
           <option value="pro" ${u.planOverride === 'pro' ? 'selected' : ''}>Give Pro</option>
           <option value="business" ${u.planOverride === 'business' ? 'selected' : ''}>Give Business</option>
+          <option value="agency" ${u.planOverride === 'agency' ? 'selected' : ''}>Give Agency</option>
           <option value="free" ${u.planOverride === 'free' ? 'selected' : ''}>Force Free</option>
         </select></td>
       <td><span style="display:inline-flex;align-items:center;gap:8px;white-space:nowrap"><span class="dot ${waDot[u.whatsapp] || 'off'}"></span>${escapeHtml(cap1(u.whatsapp.replace('_', ' ')))}</span><br><span class="muted">${u.targets} place${u.targets === 1 ? '' : 's'}</span></td>
@@ -1228,6 +1407,7 @@ function stopPolling() {
 }
 
 cfg = await fetch('api/config').then((r) => r.json()).catch(() => ({}));
+applyBrand(cfg.brandColor);
 drawLanding();
 document.title = cfg.appName || 'Auto Poster';
 if (!cfg.signupsOpen) $('tabSignup').hidden = true;
@@ -1236,6 +1416,6 @@ try {
   showApp();
 } catch {
   const reset = /^#\/reset\/([\w-]+)$/.exec(location.hash);
-  if (reset) { resetToken = reset[1]; setAuthMode('reset'); } else setAuthTab((location.hash === '#/signup' || !!refParam) && !!cfg.signupsOpen);
+  if (reset) { resetToken = reset[1]; setAuthMode('reset'); } else setAuthTab((location.hash === '#/signup' || !!refParam || !!inviteParam) && !!cfg.signupsOpen);
   showAuth();
 }

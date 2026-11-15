@@ -130,9 +130,31 @@ switches something extra on.
 | `ANTHROPIC_API_KEY` | Turns on the AI caption writer (a paid-plan feature). `AI_MODEL` changes the model. |
 | `DEMO_VIDEO_URL` | Shows a demo video on the landing page (a YouTube embed link or an .mp4). |
 | `SUPPORT_EMAIL` | Shown on the Terms and Privacy pages. |
+| `STRIPE_PRICE_ID_AGENCY`, `AGENCY_PRICE_LABEL` | Adds the Agency plan (25 WhatsApp numbers, 25 team members). `_YEARLY` versions for yearly. |
+| `BRAND_COLOR` | The site's accent colour, e.g. `#1d4ed8`. |
+| `DB_FORMAT` | Leave unset. `json` goes back to the old single-file storage. |
+
+The site name, brand colour, home-page banner, demo video and support email
+can also be changed without Railway, under **Admin → Site settings**. What you
+save there wins over the variables.
 
 What paid plans unlock beyond higher limits: repeating posts, link click
 tracking, the AI writer, posting from an RSS feed, and no "Sent with" line.
+
+**Several WhatsApp numbers and team members (Business and Agency):** on the
+dashboard's WhatsApp card, **Add number** links another number; each number
+has its own groups, channels and Status, so an agency can keep one per client.
+Under Account → Team, the owner invites people by email or link. Members get
+their own login and post from the owner's account; they can't see billing or
+invite others.
+
+**Reviews:** customers can leave a review from Account → Overview. Nothing is
+public until an admin approves it under Admin → Customer reviews; approved
+reviews appear on the home page.
+
+**Storage:** data lives in `data.sqlite` on the volume. If an older
+`db.json` is there, it is imported on the first start and kept, untouched, as
+`db.json.imported`.
 
 **Referrals:** every account has a link under Account → Refer a friend. When
 someone signs up with it and upgrades, the referrer gets 30 days of Pro.
@@ -156,7 +178,7 @@ written atomically.
 ```
 server.js           HTTP server: accounts, API, static files
 lib/auth.js         password hashing, sessions, rate limiting
-lib/db.js           data/db.json + data/images/<postId>
+lib/db.js           data/data.sqlite + data/images/<postId>
 lib/whatsapp.js     one Baileys connection per account (data/wa/<userId>)
 lib/scheduler.js    the 20-second tick that sends due posts for every account
 lib/time.js         time zones, active hours, daily/weekly repeats, queue ETAs

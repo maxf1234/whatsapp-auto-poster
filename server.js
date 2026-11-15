@@ -234,11 +234,11 @@ export async function createApp(cfg = config(), { db, wa, now = Date.now, stripe
     return user.usage;
   }
 
-  function userView(user) {
+  function userView(user, person) {
     const plan = planFor(user);
     const t = now();
     // For a team member, `user` is the workspace and `self` is the person.
-    const logged = actor.getStore();
+    const logged = person ?? actor.getStore();
     const self = logged && wsOf(logged) === user ? logged : user;
     const referred = Object.values(db.data.users).filter((u) => u.referredBy === self.id);
     return {
@@ -246,7 +246,7 @@ export async function createApp(cfg = config(), { db, wa, now = Date.now, stripe
       team: self !== user ? { role: 'member', owner: user.name || user.email }
         : { role: 'owner', members: membersOf(user).map(({ id, email, name }) => ({ id, email, name })), invites: (user.invites ?? []).map(({ id, email }) => ({ id, email })) },
       paid: isPaid(plan),
-      trialEndsAt: !isPaying(user) && user.trialEndsAt > t ? user.trialEndsAt : null,
+      trialEndsAt: !isPaying(user) && !user.planOverride && user.trialEndsAt > t ? user.trialEndsAt : null,
       proUntil: user.proUntil > t ? user.proUntil : null,
       billing: user.subscription && isPaying(user) ? { plan: user.subscription.plan ?? 'pro', interval: user.subscription.interval ?? 'month' } : null,
       branding: branding(user),
@@ -504,7 +504,7 @@ export async function createApp(cfg = config(), { db, wa, now = Date.now, stripe
         user.trialEndsAt ? `You have every Pro feature free for ${cfg.trialDays} days.` : null,
         baseUrl(req),
       ]).catch(() => {});
-      return [{ ok: true, user: userView(user) }, await login(req, user)];
+      return [{ ok: true, user: userView(wsOf(user), user) }, await login(req, user)];
     },
 
     'POST /api/login': async (req) => {
@@ -518,7 +518,7 @@ export async function createApp(cfg = config(), { db, wa, now = Date.now, stripe
       const ok = await verifyPassword(password, user?.passHash ?? dummyHash);
       if (!user || !ok) throw fail('Wrong email or password', 401);
       if (user.disabled) throw fail('This account is disabled', 403);
-      return [{ ok: true, user: userView(user) }, await login(req, user)];
+      return [{ ok: true, user: userView(wsOf(user), user) }, await login(req, user)];
     },
 
     'POST /api/logout': async (req) => {
@@ -556,7 +556,7 @@ export async function createApp(cfg = config(), { db, wa, now = Date.now, stripe
       user.passHash = await hashPassword(password);
       delete user.reset;
       endAllSessions(db, user.id);
-      return [{ ok: true, user: userView(user) }, await login(req, user)];
+      return [{ ok: true, user: userView(wsOf(user), user) }, await login(req, user)];
     },
 
     // Stripe → us. Authenticated by its signature, not a session.
@@ -924,7 +924,7 @@ export async function createApp(cfg = config(), { db, wa, now = Date.now, stripe
       const t = now();
       const week = 7 * 864e5;
       const users = Object.values(db.data.users).sort((a, b) => b.createdAt - a.createdAt).map((u) => ({
-        trialEndsAt: !isPaying(u) && u.trialEndsAt > t ? u.trialEndsAt : null,
+        trialEndsAt: !isPaying(u) && !u.planOverride && u.trialEndsAt > t ? u.trialEndsAt : null,
         id: u.id,
         email: u.email,
         name: u.name,
