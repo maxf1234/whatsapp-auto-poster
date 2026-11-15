@@ -15,8 +15,8 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { extname, join } from 'node:path';
 import { openDb } from './lib/db.js';
 import {
-  createRateLimiter, createSession, endAllSessions, endSession, hashPassword, normalizeEmail, pruneSessions,
-  readCookie, sessionCookie, sessionUser, validEmail, verifyPassword, COOKIE,
+  createRateLimiter, createSession, endAllSessions, endOtherSessions, endSession, hashPassword, normalizeEmail,
+  pruneSessions, readCookie, sessionCookie, sessionId, sessionOf, sessionsOf, validEmail, verifyPassword, COOKIE,
 } from './lib/auth.js';
 import { applyStripeEvent, createStripe, limitsOf, planOf, PLANS, verifyStripeSignature } from './lib/billing.js';
 import { createWhatsAppManager, numberJid, STATUS_JID } from './lib/whatsapp.js';
@@ -31,6 +31,21 @@ const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.
 const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const STATUS_COLORS = ['#128c7e', '#25d366', '#2f6fec', '#7c4dff', '#e5486c', '#d98a00', '#0f9fa8', '#243137'];
 const yes = (v) => /^(1|true|yes|on)$/i.test(v || '');
+
+// Per-account preferences, edited on the Account page.
+const THEMES = ['system', 'light', 'dark'];
+const WHEN_DEFAULTS = ['last', 'now', 'delay', 'at', 'queue'];
+const DEFAULT_PREFS = { theme: 'system', confirmNow: true, defaultWhen: 'last', compact: false };
+const prefsOf = (user) => ({ ...DEFAULT_PREFS, ...(user.prefs ?? {}) });
+
+// "Chrome on Windows" from a User-Agent header, for the list of devices.
+export function describeAgent(ua = '') {
+  const browser = /Edg\//.test(ua) ? 'Edge' : /OPR\//.test(ua) ? 'Opera' : /Firefox\//.test(ua) ? 'Firefox'
+    : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : null;
+  const os = /iPhone|iPad|iPod/.test(ua) ? 'iOS' : /Android/.test(ua) ? 'Android' : /Windows/.test(ua) ? 'Windows'
+    : /Mac OS X|Macintosh/.test(ua) ? 'Mac' : /Linux/.test(ua) ? 'Linux' : null;
+  return [browser, os].filter(Boolean).join(' on ') || 'Unknown device';
+}
 
 export function config(env = process.env) {
   // Railway volume mounted at /data keeps accounts, WhatsApp logins and
@@ -154,6 +169,10 @@ export async function createApp(cfg = config(), { db, wa, now = Date.now, stripe
       timeZone: user.timeZone,
       footer: user.footer,
       isAdmin: isAdmin(user),
+      createdAt: user.createdAt,
+      lastLoginAt: user.lastLoginAt ?? null,
+      prefs: prefsOf(user),
+      stats: { pending: db.postsOf(user.id).length, sentTotal: user.sentTotal ?? 0 },
       plan,
       limits: PLANS[plan],
       usage: usage(user),
@@ -224,8 +243,20 @@ export async function createApp(cfg = config(), { db, wa, now = Date.now, stripe
     };
   }
 
+  // Deletes an account with its posts, images, sessions and WhatsApp link.
+  async function removeUser(user) {
+    for (const p of db.postsOf(user.id)) {
+      delete db.data.posts[p.id];
+      if (p.imageType) await db.removeImage(p.id);
+    }
+    endAllSessions(db, user.id);
+    delete db.data.users[user.id];
+    await db.save();
+    await wa.remove(user.id).catch(() => {});
+  }
+
   async function login(req, user) {
-    const token = createSession(db, user.id, now());
+    const token = createSession(db, user.id, now(), { userAgent: req.headers['user-agent'] });
     user.lastLoginAt = now();
     await db.save();
     return { 'set-cookie': sessionCookie(token, { secure: secure(req) }) };
@@ -299,15 +330,80 @@ export async function createApp(cfg = config(), { db, wa, now = Date.now, stripe
     'GET /api/me': (req, user) => ({ user: userView(user) }),
 
     'POST /api/me/settings': async (req, user) => {
-      const { name, footer, timeZone } = await readJson(req);
+      const { name, footer, timeZone, prefs } = await readJson(req);
       if (name !== undefined) user.name = String(name).trim().slice(0, 80);
       if (footer !== undefined) user.footer = String(footer).slice(0, 500);
       if (timeZone !== undefined) {
         if (!isTimeZone(timeZone)) throw fail('Unknown time zone');
         user.timeZone = timeZone;
       }
+      if (prefs !== undefined) {
+        const next = prefsOf(user);
+        if (prefs.theme !== undefined) {
+          if (!THEMES.includes(prefs.theme)) throw fail('Unknown theme');
+          next.theme = prefs.theme;
+        }
+        if (prefs.defaultWhen !== undefined) {
+          if (!WHEN_DEFAULTS.includes(prefs.defaultWhen)) throw fail('Unknown default');
+          next.defaultWhen = prefs.defaultWhen;
+        }
+        if (prefs.confirmNow !== undefined) next.confirmNow = Boolean(prefs.confirmNow);
+        if (prefs.compact !== undefined) next.compact = Boolean(prefs.compact);
+        user.prefs = next;
+      }
       await db.save();
       return { user: userView(user) };
+    },
+
+    'POST /api/me/email': async (req, user) => {
+      const { email: rawEmail, password } = await readJson(req);
+      if (!(await verifyPassword(password, user.passHash))) throw fail('Password is wrong', 401);
+      const email = normalizeEmail(rawEmail);
+      if (!validEmail(email)) throw fail('Enter a valid email');
+      if (email === user.email) throw fail('That is already your email');
+      if (db.userByEmail(email)) throw fail('That email already has an account', 409);
+      user.email = email;
+      await db.save();
+      return { user: userView(user) };
+    },
+
+    // The devices this account is logged in on.
+    'GET /api/me/sessions': (req, user) => {
+      const current = sessionOf(db, readCookie(req, COOKIE), now())?.key;
+      return {
+        sessions: sessionsOf(db, user.id, now()).map((s) => ({
+          id: sessionId(s.key),
+          device: describeAgent(s.userAgent),
+          createdAt: s.createdAt ?? null,
+          lastSeenAt: s.lastSeenAt ?? null,
+          current: s.key === current,
+        })),
+      };
+    },
+
+    'POST /api/me/sessions/revoke-others': async (req, user) => {
+      const current = sessionOf(db, readCookie(req, COOKIE), now())?.key;
+      const ended = endOtherSessions(db, user.id, current);
+      await db.save();
+      return { ok: true, ended };
+    },
+
+    // Everything we hold about the account, as a download. No password hash,
+    // no session tokens.
+    'GET /api/me/export': (req, user) => {
+      const view = userView(user);
+      const body = {
+        exportedAt: new Date(now()).toISOString(),
+        account: { email: view.email, name: view.name, timeZone: view.timeZone, footer: view.footer, createdAt: view.createdAt, plan: view.plan, prefs: view.prefs },
+        targets: view.targets,
+        queue: view.queue,
+        posts: db.postsOf(user.id).map((p) => ({
+          text: p.text, hasImage: Boolean(p.imageType), mode: p.mode, sendAt: p.sendAt, repeat: p.repeat, status: p.status, createdAt: p.createdAt,
+          targets: p.targets.map((id) => user.targets.find((t) => t.id === id)?.name).filter(Boolean),
+        })),
+        history: user.history ?? [],
+      };
+      return [body, { 'content-disposition': 'attachment; filename="auto-poster-export.json"' }];
     },
 
     'POST /api/me/password': async (req, user) => {
@@ -322,14 +418,7 @@ export async function createApp(cfg = config(), { db, wa, now = Date.now, stripe
     'DELETE /api/me': async (req, user) => {
       const { password } = await readJson(req);
       if (!(await verifyPassword(password, user.passHash))) throw fail('Password is wrong', 401);
-      for (const p of db.postsOf(user.id)) {
-        delete db.data.posts[p.id];
-        if (p.imageType) await db.removeImage(p.id);
-      }
-      endAllSessions(db, user.id);
-      delete db.data.users[user.id];
-      await db.save();
-      await wa.remove(user.id).catch(() => {});
+      await removeUser(user);
       return [{ ok: true }, { 'set-cookie': sessionCookie(null, { secure: secure(req) }) }];
     },
 
@@ -501,10 +590,30 @@ export async function createApp(cfg = config(), { db, wa, now = Date.now, stripe
         postsThisMonth: usage(u).created,
         targets: u.targets.length,
         whatsapp: wa.get(u.id).status().state,
+        sentTotal: u.sentTotal ?? 0,
         disabled: Boolean(u.disabled),
         isAdmin: isAdmin(u),
+        // Admins named in ADMIN_EMAILS can only be changed there.
+        adminByConfig: cfg.adminEmails.includes(u.email),
+        isYou: u.id === user.id,
       }));
-      return { users, billingEnabled: cfg.billingEnabled };
+      const t = now();
+      const week = 7 * 864e5;
+      const paying = users.filter((u) => ['active', 'trialing', 'past_due'].includes(u.subscription)).length;
+      return {
+        users,
+        billingEnabled: cfg.billingEnabled,
+        stats: {
+          accounts: users.length,
+          newThisWeek: users.filter((u) => t - u.createdAt < week).length,
+          activeThisWeek: users.filter((u) => u.lastLoginAt && t - u.lastLoginAt < week).length,
+          linked: users.filter((u) => u.whatsapp === 'connected').length,
+          postsThisMonth: users.reduce((n, u) => n + u.postsThisMonth, 0),
+          waiting: users.reduce((n, u) => n + u.pending, 0),
+          pro: users.filter((u) => u.plan === 'pro').length,
+          paying,
+        },
+      };
     },
   };
 
@@ -583,7 +692,12 @@ export async function createApp(cfg = config(), { db, wa, now = Date.now, stripe
         await db.save();
         return { ok: true, tempPassword: temp };
       }
-      const { planOverride, disabled } = await readJson(req);
+      const { planOverride, disabled, isAdmin: makeAdmin } = await readJson(req);
+      if (makeAdmin !== undefined) {
+        if (target.id === user.id) throw fail('You can’t change your own admin access');
+        if (cfg.adminEmails.includes(target.email)) throw fail('This admin is set in ADMIN_EMAILS — change it there');
+        target.isAdmin = Boolean(makeAdmin);
+      }
       if (planOverride !== undefined) {
         if (planOverride !== null && !PLANS[planOverride]) throw fail('Unknown plan');
         target.planOverride = planOverride;
@@ -593,6 +707,23 @@ export async function createApp(cfg = config(), { db, wa, now = Date.now, stripe
         target.disabled = Boolean(disabled);
         if (target.disabled) endAllSessions(db, target.id);
       }
+      await db.save();
+      return { ok: true };
+    }
+    if (m && req.method === 'DELETE' && !m[2]) {
+      requireAdmin(user);
+      const target = db.data.users[m[1]];
+      if (!target) throw fail('Not found', 404);
+      if (target.id === user.id) throw fail('Delete your own account from the Account page');
+      await removeUser(target);
+      return { ok: true };
+    }
+
+    m = /^\/api\/me\/sessions\/([\w-]+)$/.exec(path);
+    if (m && req.method === 'DELETE') {
+      const found = sessionsOf(db, user.id, now()).find((x) => sessionId(x.key) === m[1]);
+      if (!found) throw fail('Not found', 404);
+      delete db.data.sessions[found.key];
       await db.save();
       return { ok: true };
     }
@@ -627,8 +758,10 @@ export async function createApp(cfg = config(), { db, wa, now = Date.now, stripe
         if (open[key]) {
           out = await open[key](req);
         } else {
-          const user = sessionUser(db, readCookie(req, COOKIE), now());
+          const found = sessionOf(db, readCookie(req, COOKIE), now());
+          const user = found ? db.data.users[found.session.userId] : null;
           if (!user || user.disabled) return send(res, 401, { error: 'Please log in' });
+          found.session.lastSeenAt = now(); // kept in memory; written with the next save
           out = authed[key] ? await authed[key](req, user) : await dynamic(req, user, path);
         }
         if (out === undefined) return send(res, 404, { error: 'Not found' });

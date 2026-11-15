@@ -69,6 +69,19 @@ device, mostly in the first minutes after linking. The Status editor shows how
 many have been picked up. If it stays at 0, unlink and link again, or use
 groups or numbers for the audience instead.
 
+## Accounts and admin
+
+The **first account that signs up is the admin**. Admins get an **Admin** page:
+totals (accounts, active this week, posts, paying), search and filters, plan
+overrides, password resets, disable / delete, and **Make admin / Remove admin**
+for other accounts. You can't remove your own admin access, and addresses in
+`ADMIN_EMAILS` are always admins.
+
+Everyone gets an **Account** page with: overview and usage, profile (name, time
+zone), change email, post footer, composer defaults, light / dark / compact
+appearance, plan and billing, change password, logged-in devices (log out one
+or all others), a data download, and delete account.
+
 ## Switching on payments (later)
 
 Nothing is charged until you do this:

@@ -375,3 +375,125 @@ test('Status: needs an audience, sends with the audience list and colour', async
   assert.match(fail.body.error, /Nobody would see/);
   assert.equal((await c(`targets/${user.targets[1].id}`, 'POST', { audience: { contacts: true } })).status, 400, 'groups have no audience');
 });
+
+test('account: preferences, email change, stats and export', async (t) => {
+  const { client, wa } = await setup(t);
+  const c = await signedUp(client);
+  const first = (await c('me')).body.user;
+  assert.deepEqual(first.prefs, { theme: 'system', confirmNow: true, defaultWhen: 'last', compact: false });
+  assert.deepEqual(first.stats, { pending: 0, sentTotal: 0 });
+
+  const saved = (await c('me/settings', 'POST', { prefs: { theme: 'dark', confirmNow: false, defaultWhen: 'queue' } })).body.user;
+  assert.deepEqual(saved.prefs, { theme: 'dark', confirmNow: false, defaultWhen: 'queue', compact: false });
+  assert.equal((await c('me/settings', 'POST', { prefs: { theme: 'neon' } })).status, 400);
+  assert.equal((await c('me/settings', 'POST', { prefs: { defaultWhen: 'someday' } })).status, 400);
+  assert.equal((await c('me')).body.user.prefs.theme, 'dark', 'a rejected change leaves the old value');
+
+  // Email: needs the password, must be valid and unused.
+  await signedUp(client, 'taken@example.com');
+  assert.equal((await c('me/email', 'POST', { email: 'new@example.com', password: 'wrong' })).status, 401);
+  assert.equal((await c('me/email', 'POST', { email: 'not-an-email', password: 'hunter2hunter2' })).status, 400);
+  assert.equal((await c('me/email', 'POST', { email: 'TAKEN@example.com', password: 'hunter2hunter2' })).status, 409);
+  assert.equal((await c('me/email', 'POST', { email: ' New@Example.com ', password: 'hunter2hunter2' })).body.user.email, 'new@example.com');
+  assert.equal((await client()('login', 'POST', { email: 'max@example.com', password: 'hunter2hunter2' })).status, 401);
+  assert.equal((await client()('login', 'POST', { email: 'new@example.com', password: 'hunter2hunter2' })).status, 200);
+
+  // Stats count what was sent and what is waiting.
+  const { user } = (await c('targets', 'POST', { ref: '111@g.us' })).body;
+  const tid = user.targets[0].id;
+  await c('posts', 'POST', { text: 'sent one', targets: [tid], when: { type: 'now' } });
+  await c('posts', 'POST', { text: 'waiting one', targets: [tid], when: { type: 'queue' } });
+  assert.equal(wa.sent.length, 1);
+  assert.deepEqual((await c('me')).body.user.stats, { pending: 1, sentTotal: 1 });
+
+  // Export holds the account's data and none of its secrets.
+  const exp = await c('me/export');
+  assert.equal(exp.status, 200);
+  assert.equal(exp.body.account.email, 'new@example.com');
+  assert.equal(exp.body.posts.length, 1);
+  assert.equal(exp.body.posts[0].text, 'waiting one');
+  assert.equal(exp.body.history[0].text, 'sent one');
+  assert.ok(!JSON.stringify(exp.body).includes('scrypt$'), 'no password hash in the export');
+  assert.ok(!('passHash' in exp.body.account));
+});
+
+test('sessions: list devices, log out one, log out all others', async (t) => {
+  const { client } = await setup(t);
+  const laptop = client();
+  const ua = (s) => ({ 'user-agent': s });
+  const chromeWin = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36';
+  const safariPhone = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1';
+  await laptop('signup', 'POST', { email: 'max@example.com', password: 'hunter2hunter2' }, ua(chromeWin));
+  const phone = client();
+  await phone('login', 'POST', { email: 'max@example.com', password: 'hunter2hunter2' }, ua(safariPhone));
+  const tablet = client();
+  await tablet('login', 'POST', { email: 'max@example.com', password: 'hunter2hunter2' });
+
+  const list = (await laptop('me/sessions')).body.sessions;
+  assert.equal(list.length, 3);
+  assert.equal(list.filter((s) => s.current).length, 1);
+  assert.equal(list.find((s) => s.current).device, 'Chrome on Windows');
+  assert.ok(list.some((s) => s.device === 'Safari on iOS'));
+  assert.ok(!JSON.stringify(list).includes('userAgent'), 'raw user agents are not sent');
+
+  // Another account can't see or end these.
+  const other = await signedUp(client, 'other@example.com');
+  const phoneId = list.find((s) => s.device === 'Safari on iOS').id;
+  assert.equal((await other(`me/sessions/${phoneId}`, 'DELETE')).status, 404);
+  assert.equal((await phone('me')).status, 200);
+
+  assert.equal((await laptop(`me/sessions/${phoneId}`, 'DELETE')).status, 200);
+  assert.equal((await phone('me')).status, 401, 'the phone is logged out');
+  assert.equal((await tablet('me')).status, 200);
+
+  assert.equal((await laptop('me/sessions/revoke-others', 'POST')).body.ended, 1);
+  assert.equal((await tablet('me')).status, 401);
+  assert.equal((await laptop('me')).status, 200, 'the device that asked stays logged in');
+  assert.equal((await other('me')).status, 200, 'other accounts are untouched');
+});
+
+test('admin: make and remove admins, delete accounts, see totals', async (t) => {
+  const { client, app } = await setup(t, { ADMIN_EMAILS: 'boss@example.com' });
+  const owner = await signedUp(client, 'owner@example.com');
+  const u = await signedUp(client, 'user@example.com');
+  const boss = await signedUp(client, 'boss@example.com');
+  const ownerId = (await owner('me')).body.user.id;
+  const userId = (await u('me')).body.user.id;
+  const bossId = (await boss('me')).body.user.id;
+
+  // A regular account can do none of this.
+  assert.equal((await u(`admin/users/${ownerId}`, 'POST', { isAdmin: false })).status, 403);
+  assert.equal((await u(`admin/users/${ownerId}`, 'DELETE')).status, 403);
+  assert.equal((await u(`admin/users/${userId}`, 'POST', { isAdmin: true })).status, 403, 'nobody can promote themselves');
+  assert.equal((await u('me')).body.user.isAdmin, false);
+
+  // Promote, then demote.
+  assert.equal((await owner(`admin/users/${userId}`, 'POST', { isAdmin: true })).status, 200);
+  assert.equal((await u('me')).body.user.isAdmin, true);
+  assert.equal((await u('admin/users')).status, 200);
+  assert.equal((await owner(`admin/users/${userId}`, 'POST', { isAdmin: false })).status, 200);
+  assert.equal((await u('admin/users')).status, 403);
+
+  // Guards: not yourself, and not an admin named in ADMIN_EMAILS.
+  assert.equal((await owner(`admin/users/${ownerId}`, 'POST', { isAdmin: false })).status, 400);
+  assert.equal((await owner('me')).body.user.isAdmin, true);
+  assert.equal((await owner(`admin/users/${bossId}`, 'POST', { isAdmin: false })).status, 400);
+  assert.equal((await boss('me')).body.user.isAdmin, true);
+  assert.equal((await owner(`admin/users/${ownerId}`, 'DELETE')).status, 400);
+
+  const { users, stats } = (await owner('admin/users')).body;
+  assert.equal(stats.accounts, 3);
+  assert.equal(stats.newThisWeek, 3);
+  assert.equal(users.find((x) => x.id === ownerId).isYou, true);
+  assert.equal(users.find((x) => x.id === bossId).adminByConfig, true);
+
+  // Deleting an account removes its posts and logs it out.
+  const { user } = (await u('targets', 'POST', { ref: '111@g.us' })).body;
+  await u('posts', 'POST', { text: 'bye', targets: [user.targets[0].id], when: { type: 'queue' } });
+  assert.equal((await owner(`admin/users/${userId}`, 'DELETE')).status, 200);
+  assert.equal((await u('me')).status, 401);
+  assert.equal(app.db.data.users[userId], undefined);
+  assert.equal(Object.values(app.db.data.posts).filter((p) => p.userId === userId).length, 0);
+  assert.equal((await owner('admin/users')).body.stats.accounts, 2);
+  assert.equal((await owner(`admin/users/${userId}`, 'DELETE')).status, 404);
+});

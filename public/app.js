@@ -43,7 +43,47 @@ function setAuthTab(isSignup) {
   $('nameWrap').hidden = !isSignup;
   $('authBtn').textContent = isSignup ? 'Create account' : 'Log in';
   $('aPw').autocomplete = isSignup ? 'new-password' : 'current-password';
+  $('authHeading').textContent = isSignup ? 'Create your account' : 'Welcome back';
+  $('authSub').textContent = isSignup ? 'Free to start. No card needed.' : 'Log in to your account.';
   setMsg('authMsg', '');
+}
+
+// Landing-page buttons jump to the form on the right tab.
+function goAuth(isSignup) {
+  if (isSignup && !cfg.signupsOpen) { setAuthTab(false); setMsg('authMsg', 'Sign-ups are closed right now.', 'warn'); }
+  else setAuthTab(isSignup);
+  $('authPanel').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  $(isSignup && cfg.signupsOpen ? 'aName' : 'aEmail').focus({ preventScroll: true });
+}
+$('navLogin').onclick = () => goAuth(false);
+$('navSignup').onclick = () => goAuth(true);
+$('finalSignup').onclick = () => goAuth(true);
+
+const planFeatures = (p) => `<ul>
+    <li>${p.postsPerMonth.toLocaleString()} posts a month</li>
+    <li>${p.maxPending.toLocaleString()} waiting at once</li>
+    <li>${p.maxTargets} groups, channels or Status</li>
+    <li class="${p.recurring ? '' : 'no'}">${p.recurring ? 'Repeating posts (daily / weekly)' : 'No repeating posts'}</li>
+  </ul>`;
+
+function drawLanding() {
+  const name = cfg.appName || 'Auto Poster';
+  $('authTitle').textContent = $('footTitle').textContent = name;
+  const plans = cfg.plans || {};
+  if (!cfg.billingEnabled || !plans.free) {
+    $('pricingSub').textContent = `Everything is free while ${name} is in beta.`;
+    $('landingPlans').innerHTML = plans.pro ? `<div class="plan featured"><h3>Beta <span class="badge pro">Everything unlocked</span></h3>
+      <div class="price">Free <small>during the beta</small></div>${planFeatures(plans.pro)}
+      <button class="btn primary" type="button" data-go>Create your free account</button></div>` : '';
+  } else {
+    $('landingPlans').innerHTML = `<div class="plan"><h3>${escapeHtml(plans.free.label)}</h3>
+        <div class="price">$0 <small>forever</small></div>${planFeatures(plans.free)}
+        <button class="btn ghost" type="button" data-go>Start free</button></div>
+      <div class="plan featured"><h3>${escapeHtml(plans.pro.label)} <span class="badge pro">Most popular</span></h3>
+        <div class="price">${escapeHtml(cfg.proPriceLabel || '')}</div>${planFeatures(plans.pro)}
+        <button class="btn pro" type="button" data-go>Get ${escapeHtml(plans.pro.label)}</button></div>`;
+  }
+  for (const b of $('landingPlans').querySelectorAll('[data-go]')) b.onclick = () => goAuth(true);
 }
 $('tabLogin').onclick = () => setAuthTab(false);
 $('tabSignup').onclick = () => {
@@ -77,15 +117,21 @@ $('logout').onclick = async () => {
 function showAuth() {
   me = null;
   stopPolling();
+  applyPrefs(null);
   $('appView').hidden = true;
   $('authView').hidden = false;
 }
 
 // ---------- Views ----------
 
+const SECTIONS = ['overview', 'profile', 'posting', 'appearance', 'plan', 'security', 'data'];
+let section = 'overview';
+
 function route() {
-  const view = location.hash.replace(/^#\/?/, '') || 'dash';
+  if (!me) return; // logged out: the hash is just a link within the landing page
+  const [view, sub] = location.hash.replace(/^#\/?/, '').split('/');
   const name = ['account', 'admin'].includes(view) ? view : 'dash';
+  section = name === 'account' && SECTIONS.includes(sub) ? sub : 'overview';
   $('dashView').hidden = name !== 'dash';
   $('accountView').hidden = name !== 'account';
   $('adminView').hidden = name !== 'admin';
@@ -95,12 +141,18 @@ function route() {
   }
   if (name === 'account') drawAccount();
   if (name === 'admin') loadAdmin();
+  if (name !== lastView) window.scrollTo(0, 0);
+  lastView = name;
 }
+let lastView = null;
 window.addEventListener('hashchange', route);
 
 function showApp() {
   $('authView').hidden = true;
   $('appView').hidden = false;
+  if (!/^#\//.test(location.hash)) history.replaceState(null, '', `${location.pathname}${location.search}#/`);
+  const dw = me.prefs?.defaultWhen;
+  if (dw && dw !== 'last') when = dw;
   drawMe();
   route();
   loadPosts();
@@ -121,7 +173,21 @@ function banner(text) {
 }
 
 async function refreshMe() {
-  try { me = (await api('me')).user; drawMe(); } catch {}
+  try { me = (await api('me')).user; drawMe(); if (!$('accountView').hidden) drawAccount(); } catch {}
+}
+
+const initials = (u) => ((u.name || u.email || '?').trim().split(/[\s@._-]+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('') || '?').toUpperCase();
+
+// Theme and density follow the account; mirrored locally so the next page
+// load paints correctly before the account has loaded.
+function applyPrefs(prefs) {
+  const theme = prefs?.theme ?? store.get('theme') ?? 'system';
+  const compact = prefs ? !!prefs.compact : store.get('compact') === '1';
+  if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
+  else delete document.documentElement.dataset.theme;
+  if (compact) document.documentElement.dataset.density = 'compact';
+  else delete document.documentElement.dataset.density;
+  if (prefs) { store.set('theme', theme); store.set('compact', compact ? '1' : '0'); }
 }
 
 function drawMe() {
@@ -131,6 +197,9 @@ function drawMe() {
   $('planBadge').hidden = !cfg.billingEnabled;
   $('planBadge').textContent = me.limits.label;
   $('planBadge').className = `badge ${me.plan === 'pro' ? 'pro' : ''}`;
+  $('avatar').textContent = initials(me);
+  $('avatar').title = me.email;
+  applyPrefs(me.prefs);
   drawTargets();
   drawWhen();
   drawQueueSettings(me.queue);
@@ -417,7 +486,7 @@ $('submit').onclick = async () => {
     w.at = whenTime();
     if (!w.at) return setMsg('msg', 'Pick a date and time', 'err');
   }
-  if (when === 'now' && !confirm(`Post this to ${targets.length} group${targets.length === 1 ? '' : 's'}/channel${targets.length === 1 ? '' : 's'} right now?`)) return;
+  if (when === 'now' && me.prefs?.confirmNow !== false && !confirm(`Post this to ${targets.length} group${targets.length === 1 ? '' : 's'}/channel${targets.length === 1 ? '' : 's'} right now?`)) return;
 
   $('submit').disabled = true;
   setMsg('msg', when === 'now' ? 'Posting…' : 'Saving…');
@@ -587,6 +656,7 @@ async function loadWhatsApp() {
   if (wa.error) text += ` · <span class="err">${escapeHtml(wa.error)}</span>`;
   if (wa.dryRun) text += ' <span class="chip c-amber">Test mode</span>';
   $('waStatus').innerHTML = `<span class="dot ${dot}"></span><span>${text}</span>`;
+  $('ovWa').innerHTML = $('waStatus').innerHTML;
   $('waPill').innerHTML = `<span class="dot ${dot}"></span>WhatsApp`;
   $('waPill').title = label;
   $('waLink').hidden = !['needs_link', 'pairing'].includes(wa.state);
@@ -620,20 +690,53 @@ $('unlink').onclick = async () => {
 
 // ---------- Account + billing ----------
 
+const fmtDate = (ms) => (ms ? new Date(ms).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' }) : '—');
+function ago(ms) {
+  const m = Math.round((Date.now() - ms) / 60000);
+  if (m < 2) return 'just now';
+  if (m < 60) return `${m} minutes ago`;
+  if (m < 48 * 60) return `${Math.round(m / 60)} hour${Math.round(m / 60) === 1 ? '' : 's'} ago`;
+  return fmtDate(ms);
+}
+const tile = (k, v, sub = '') => `<div class="tile"><div class="k">${escapeHtml(k)}</div><div class="v">${escapeHtml(v)}</div>${sub ? `<div class="s">${escapeHtml(sub)}</div>` : ''}</div>`;
+
 function drawAccount() {
-  $('sName').value = me.name || '';
-  $('sFooter').value = me.footer || '';
+  for (const el of document.querySelectorAll('#accountView .sec')) el.hidden = el.dataset.sec !== section;
+  for (const a of $('accountNav').querySelectorAll('a')) {
+    if (a.dataset.sec === section) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
+  }
+
+  // Overview
+  $('ovAvatar').textContent = initials(me);
+  $('ovName').textContent = me.name || me.email.split('@')[0];
+  $('ovEmail').textContent = me.email;
+  $('ovChips').innerHTML =
+    (cfg.billingEnabled ? `<span class="chip ${me.plan === 'pro' ? 'c-violet' : 'c-gray'}">${escapeHtml(me.limits.label)} plan</span>` : '<span class="chip c-green">Beta · everything unlocked</span>') +
+    (me.isAdmin ? `<span class="chip c-green">${icon('shield')}Admin</span>` : '') +
+    `<span class="chip c-gray">Joined ${fmtDate(me.createdAt)}</span>`;
+  $('ovTiles').innerHTML =
+    tile('Posts this month', me.usage.created.toLocaleString(), `of ${me.limits.postsPerMonth.toLocaleString()}`) +
+    tile('Waiting to send', (me.stats?.pending ?? 0).toLocaleString(), `of ${me.limits.maxPending.toLocaleString()}`) +
+    tile('Places to post', String(me.targets.length), `of ${me.limits.maxTargets}`) +
+    tile('Sent all time', (me.stats?.sentTotal ?? 0).toLocaleString());
+
+  // Profile + posting + appearance (don't overwrite a field being typed in)
+  const fill = (id, v) => { if (document.activeElement !== $(id)) $(id).value = v; };
+  fill('sName', me.name || '');
+  fill('sFooter', me.footer || '');
+  $('emNew').placeholder = me.email;
   const zones = Intl.supportedValuesOf?.('timeZone') ?? [me.timeZone];
   if (!zones.includes(me.timeZone)) zones.unshift(me.timeZone);
   $('sTz').innerHTML = zones.map((z) => `<option ${z === me.timeZone ? 'selected' : ''}>${escapeHtml(z)}</option>`).join('');
+  const prefs = me.prefs ?? {};
+  $('pWhen').value = prefs.defaultWhen ?? 'last';
+  $('pConfirm').checked = prefs.confirmNow !== false;
+  $('pCompact').checked = !!prefs.compact;
+  for (const btn of $('pTheme').querySelectorAll('button')) btn.setAttribute('aria-pressed', String(btn.dataset.theme === (prefs.theme ?? 'system')));
+  if (section === 'security') loadSessions();
 
   $('billingCard').hidden = false;
-  const fmt = (p) => `<ul>
-      <li>${p.postsPerMonth.toLocaleString()} posts a month</li>
-      <li>${p.maxPending.toLocaleString()} waiting at once</li>
-      <li>${p.maxTargets} groups/channels</li>
-      <li>${p.recurring ? 'Repeating posts (daily / weekly)' : 'No repeating posts'}</li>
-    </ul>`;
+  const fmt = planFeatures;
   if (!cfg.billingEnabled) {
     $('planInfo').innerHTML = `<div class="beta"><span class="t-ic">${icon('star')}</span><div>
       <b>Everything is unlocked, free,</b> while ${escapeHtml(cfg.appName)} is in beta.<br>
@@ -646,7 +749,7 @@ function drawAccount() {
   $('planInfo').innerHTML = `You're on <b>${escapeHtml(me.limits.label)}</b>${me.subscription && me.plan === 'pro' ? ` <span class="muted">(${escapeHtml(me.subscription.replace('_', ' '))})</span>` : ''}.
     <div class="usage"><div class="usage-bar"><span style="width:${pct}%"></span></div>
     <span class="muted">${me.usage.created} of ${me.limits.postsPerMonth.toLocaleString()} posts used this month</span></div>`;
-  $('plans').innerHTML = Object.entries(cfg.plans).map(([id, p]) => `<div class="plan ${id === me.plan ? 'current' : ''}">
+  $('plans').innerHTML = Object.entries(cfg.plans).map(([id, p]) => `<div class="plan ${id === me.plan ? 'current' : id === 'pro' ? 'featured' : ''}">
       <h3>${escapeHtml(p.label)} ${id === me.plan ? '<span class="badge">Current</span>' : id === 'pro' ? '<span class="badge pro">Best</span>' : ''}</h3>
       <div class="price">${id === 'pro' ? escapeHtml(cfg.proPriceLabel) : 'Free forever'}</div>${fmt(p)}</div>`).join('');
   $('upgrade').hidden = me.plan === 'pro';
@@ -663,21 +766,73 @@ $('manageBilling').onclick = async () => {
   catch (err) { setMsg('billingMsg', err.message, 'err'); }
 };
 
-$('saveSettings').onclick = async () => {
+async function saveSettings(body, msgId, okText = 'Saved') {
   try {
-    me = (await api('me/settings', 'POST', { name: $('sName').value, footer: $('sFooter').value, timeZone: $('sTz').value })).user;
+    me = (await api('me/settings', 'POST', body)).user;
     drawMe();
-    loadPosts();
-    setMsg('settingsMsg', 'Saved', 'ok');
-  } catch (err) { setMsg('settingsMsg', err.message, 'err'); }
+    drawAccount();
+    setMsg(msgId, okText, 'ok');
+    return true;
+  } catch (err) { setMsg(msgId, err.message, 'err'); return false; }
+}
+$('saveProfile').onclick = async () => { if (await saveSettings({ name: $('sName').value, timeZone: $('sTz').value }, 'profileMsg')) loadPosts(); };
+$('saveFooter').onclick = () => saveSettings({ footer: $('sFooter').value }, 'footerMsg');
+$('pWhen').onchange = async () => {
+  const v = $('pWhen').value;
+  if (await saveSettings({ prefs: { defaultWhen: v } }, 'postingMsg') && v !== 'last') { when = v; drawWhen(); }
+};
+$('pConfirm').onchange = () => saveSettings({ prefs: { confirmNow: $('pConfirm').checked } }, 'postingMsg');
+$('pCompact').onchange = () => saveSettings({ prefs: { compact: $('pCompact').checked } }, 'appearanceMsg');
+$('pTheme').onclick = (e) => {
+  const b = e.target.closest('button[data-theme]');
+  if (b) saveSettings({ prefs: { theme: b.dataset.theme } }, 'appearanceMsg');
+};
+
+$('changeEmail').onclick = async () => {
+  try {
+    me = (await api('me/email', 'POST', { email: $('emNew').value, password: $('emPw').value })).user;
+    $('emNew').value = $('emPw').value = '';
+    drawMe();
+    drawAccount();
+    setMsg('emailMsg', `Email changed to ${me.email}`, 'ok');
+  } catch (err) { setMsg('emailMsg', err.message, 'err'); }
 };
 
 $('changePw').onclick = async () => {
+  if ($('pwNew').value !== $('pwNew2').value) return setMsg('pwMsg', 'The two new passwords don’t match', 'err');
   try {
     await api('me/password', 'POST', { current: $('pwCur').value, next: $('pwNew').value });
-    $('pwCur').value = $('pwNew').value = '';
+    $('pwCur').value = $('pwNew').value = $('pwNew2').value = '';
     setMsg('pwMsg', 'Password changed. Other devices were logged out.', 'ok');
+    loadSessions();
   } catch (err) { setMsg('pwMsg', err.message, 'err'); }
+};
+
+// Devices
+async function loadSessions() {
+  try {
+    const { sessions } = await api('me/sessions');
+    $('revokeOthers').hidden = sessions.length < 2;
+    $('sessionList').innerHTML = sessions.map((x) => `<li class="mid" data-id="${escapeHtml(x.id)}">
+      <span class="t-ic ${x.current ? 'c-green' : 'c-gray'}">${icon('device')}</span>
+      <div class="lbody"><div class="ltext" style="margin:0">${escapeHtml(x.device)}${x.current ? ' <span class="chip c-green">This device</span>' : ''}</div>
+        <div class="lwhen" style="margin-top:3px">${x.current ? 'Active now' : `Last active ${escapeHtml(ago(x.lastSeenAt))}`} · signed in ${escapeHtml(fmtDate(x.createdAt))}</div></div>
+      ${x.current ? '' : '<div class="lbtns"><button type="button" data-act="end">Log out</button></div>'}</li>`).join('');
+  } catch (err) { setMsg('sessionMsg', err.message, 'err'); }
+}
+$('sessionList').onclick = async (e) => {
+  const btn = e.target.closest('button[data-act="end"]');
+  if (!btn) return;
+  try { await api(`me/sessions/${btn.closest('li').dataset.id}`, 'DELETE'); setMsg('sessionMsg', 'Logged out that device', 'ok'); loadSessions(); }
+  catch (err) { setMsg('sessionMsg', err.message, 'err'); }
+};
+$('revokeOthers').onclick = async () => {
+  if (!confirm('Log out every other device?')) return;
+  try {
+    const { ended } = await api('me/sessions/revoke-others', 'POST');
+    setMsg('sessionMsg', `Logged out ${ended} other device${ended === 1 ? '' : 's'}`, 'ok');
+    loadSessions();
+  } catch (err) { setMsg('sessionMsg', err.message, 'err'); }
 };
 
 $('deleteAccount').onclick = async () => {
@@ -690,33 +845,53 @@ $('deleteAccount').onclick = async () => {
 
 // ---------- Admin ----------
 
+let adminUsers = [];
 async function loadAdmin() {
-  if (!me.isAdmin) return;
+  if (!me.isAdmin) { location.hash = '#/'; return; }
   try {
-    const { users, billingEnabled } = await api('admin/users');
-    const pro = users.filter((u) => u.plan === 'pro').length;
-    const paying = users.filter((u) => ['active', 'trialing', 'past_due'].includes(u.subscription)).length;
-    $('adminSummary').textContent = `${users.length} account${users.length === 1 ? '' : 's'}${billingEnabled ? ` · ${pro} on Pro · ${paying} paying` : ' · billing is off, everyone has Pro'}`;
-    const waDot = { connected: 'on', connecting: 'wait', pairing: 'wait' };
-    $('adminTable').innerHTML = `<tr><th>Account</th><th>Plan</th><th>WhatsApp</th><th>Posts</th><th></th></tr>` +
-      users.map((u) => `<tr data-id="${u.id}">
-        <td><b>${escapeHtml(u.email)}</b>${u.isAdmin ? ' <span class="chip c-green">Admin</span>' : ''}${u.disabled ? ' <span class="chip c-red">Disabled</span>' : ''}<br>
-          <span class="muted">${escapeHtml(u.name || '')} · joined ${new Date(u.createdAt).toLocaleDateString()}${u.lastLoginAt ? ` · seen ${new Date(u.lastLoginAt).toLocaleDateString()}` : ''}</span></td>
-        <td><span class="chip ${u.plan === 'pro' ? 'c-violet' : 'c-gray'}">${escapeHtml(u.plan === 'pro' ? 'Pro' : 'Free')}</span>${u.subscription ? ` <span class="muted">${escapeHtml(u.subscription)}</span>` : ''}<br>
-          <select class="inline" data-act="plan" aria-label="Plan override" style="margin-top:8px">
-            <option value="" ${u.planOverride ? '' : 'selected'}>auto</option>
-            <option value="pro" ${u.planOverride === 'pro' ? 'selected' : ''}>give Pro</option>
-            <option value="free" ${u.planOverride === 'free' ? 'selected' : ''}>force Free</option>
-          </select></td>
-        <td><span style="display:inline-flex;align-items:center;gap:8px"><span class="dot ${waDot[u.whatsapp] || 'off'}"></span>${escapeHtml(u.whatsapp.replace('_', ' '))}</span><br><span class="muted">${u.targets} target${u.targets === 1 ? '' : 's'}</span></td>
-        <td>${u.pending} waiting<br><span class="muted">${u.postsThisMonth} this month</span></td>
-        <td><div class="lbtns">
-          <button type="button" data-act="reset">Reset password</button>
-          ${u.isAdmin ? '' : `<button type="button" data-act="disable">${u.disabled ? 'Enable' : 'Disable'}</button>`}
-        </div></td>
-      </tr>`).join('');
+    const { users, billingEnabled, stats } = await api('admin/users');
+    adminUsers = users;
+    $('adminSummary').textContent = billingEnabled ? 'Accounts, plans and activity.' : 'Billing is off, so everyone has Pro for free.';
+    $('adminTiles').innerHTML =
+      tile('Accounts', stats.accounts.toLocaleString(), `${stats.newThisWeek} new this week`) +
+      tile('Active this week', stats.activeThisWeek.toLocaleString(), `${stats.linked} with WhatsApp linked`) +
+      tile('Posts this month', stats.postsThisMonth.toLocaleString(), `${stats.waiting} waiting to send`) +
+      (billingEnabled ? tile('Paying', stats.paying.toLocaleString(), `${stats.pro} on Pro in total`) : '');
+    drawAdmin();
   } catch (err) { setMsg('adminMsg', err.message, 'err'); }
 }
+
+function drawAdmin() {
+  const q = $('adminSearch').value.trim().toLowerCase();
+  const f = $('adminFilter').value;
+  const match = {
+    all: () => true, admin: (u) => u.isAdmin, pro: (u) => u.plan === 'pro', free: (u) => u.plan !== 'pro',
+    linked: (u) => u.whatsapp === 'connected', disabled: (u) => u.disabled,
+  }[f];
+  const users = adminUsers.filter((u) => match(u) && (!q || u.email.toLowerCase().includes(q) || (u.name || '').toLowerCase().includes(q)));
+  const waDot = { connected: 'on', connecting: 'wait', pairing: 'wait' };
+  $('adminTable').innerHTML = `<tr><th>Account</th><th>Plan</th><th>WhatsApp</th><th>Posts</th><th>Actions</th></tr>` +
+    (users.map((u) => `<tr data-id="${u.id}" data-email="${escapeHtml(u.email)}">
+      <td><b>${escapeHtml(u.email)}</b>${u.isYou ? ' <span class="chip c-gray">You</span>' : ''}${u.isAdmin ? ' <span class="chip c-green">Admin</span>' : ''}${u.disabled ? ' <span class="chip c-red">Disabled</span>' : ''}<br>
+        <span class="muted">${escapeHtml(u.name || 'No name')} · joined ${fmtDate(u.createdAt)}${u.lastLoginAt ? ` · seen ${escapeHtml(ago(u.lastLoginAt))}` : ''}</span></td>
+      <td><span class="chip ${u.plan === 'pro' ? 'c-violet' : 'c-gray'}">${u.plan === 'pro' ? 'Pro' : 'Free'}</span>${u.subscription ? ` <span class="muted">${escapeHtml(u.subscription)}</span>` : ''}<br>
+        <select class="inline" data-act="plan" aria-label="Plan override" style="margin-top:8px">
+          <option value="" ${u.planOverride ? '' : 'selected'}>Automatic</option>
+          <option value="pro" ${u.planOverride === 'pro' ? 'selected' : ''}>Give Pro</option>
+          <option value="free" ${u.planOverride === 'free' ? 'selected' : ''}>Force Free</option>
+        </select></td>
+      <td><span style="display:inline-flex;align-items:center;gap:8px;white-space:nowrap"><span class="dot ${waDot[u.whatsapp] || 'off'}"></span>${escapeHtml(cap1(u.whatsapp.replace('_', ' ')))}</span><br><span class="muted">${u.targets} place${u.targets === 1 ? '' : 's'}</span></td>
+      <td style="white-space:nowrap">${u.postsThisMonth} this month<br><span class="muted">${u.pending} waiting · ${u.sentTotal ?? 0} sent</span></td>
+      <td><div class="lbtns" style="margin:0">
+        <button type="button" data-act="reset">Reset password</button>
+        ${u.isYou || u.adminByConfig ? '' : `<button type="button" data-act="admin" data-on="${u.isAdmin ? '' : '1'}">${u.isAdmin ? 'Remove admin' : 'Make admin'}</button>`}
+        ${u.isAdmin ? '' : `<button type="button" data-act="disable" data-on="${u.disabled ? '' : '1'}">${u.disabled ? 'Enable' : 'Disable'}</button>`}
+        ${u.isYou ? '' : '<button type="button" data-act="delete">Delete</button>'}
+      </div></td>
+    </tr>`).join('') || '<tr><td colspan="5" class="none">No accounts match.</td></tr>');
+}
+$('adminSearch').oninput = drawAdmin;
+$('adminFilter').onchange = drawAdmin;
 
 $('adminTable').onchange = async (e) => {
   if (e.target.dataset.act !== 'plan') return;
@@ -728,16 +903,26 @@ $('adminTable').onclick = async (e) => {
   const btn = e.target.closest('button[data-act]');
   if (!btn) return;
   const tr = btn.closest('tr');
-  const email = tr.querySelector('b').textContent;
+  const { id, email } = tr.dataset;
+  const act = btn.dataset.act;
+  const on = !!btn.dataset.on;
   try {
-    if (btn.dataset.act === 'reset') {
+    if (act === 'reset') {
       if (!confirm(`Reset the password for ${email}? They'll be logged out everywhere.`)) return;
-      const { tempPassword } = await api(`admin/users/${tr.dataset.id}/reset-password`, 'POST');
+      const { tempPassword } = await api(`admin/users/${id}/reset-password`, 'POST');
       prompt(`Temporary password for ${email} — send it to them, they can change it under Account:`, tempPassword);
-    } else {
-      const disable = btn.textContent === 'Disable';
-      if (!confirm(`${disable ? 'Disable' : 'Enable'} ${email}?${disable ? ' Their scheduled posts stop until re-enabled.' : ''}`)) return;
-      await api(`admin/users/${tr.dataset.id}`, 'POST', { disabled: disable });
+    } else if (act === 'admin') {
+      if (!confirm(on ? `Make ${email} an admin? They'll be able to see and manage every account.` : `Remove admin access from ${email}?`)) return;
+      await api(`admin/users/${id}`, 'POST', { isAdmin: on });
+      setMsg('adminMsg', on ? `${email} is now an admin` : `${email} is no longer an admin`, 'ok');
+    } else if (act === 'disable') {
+      if (!confirm(`${on ? 'Disable' : 'Enable'} ${email}?${on ? ' Their scheduled posts stop until re-enabled.' : ''}`)) return;
+      await api(`admin/users/${id}`, 'POST', { disabled: on });
+      setMsg('adminMsg', `${email} ${on ? 'disabled' : 'enabled'}`, 'ok');
+    } else if (act === 'delete') {
+      if (!confirm(`Delete ${email} for good? Their posts are removed and WhatsApp is unlinked. This can't be undone.`)) return;
+      await api(`admin/users/${id}`, 'DELETE');
+      setMsg('adminMsg', `${email} deleted`, 'ok');
     }
     loadAdmin();
   } catch (err) { setMsg('adminMsg', err.message, 'err'); }
@@ -756,13 +941,13 @@ function stopPolling() {
 }
 
 cfg = await fetch('api/config').then((r) => r.json()).catch(() => ({}));
-$('authTitle').textContent = cfg.appName || 'Auto Poster';
+drawLanding();
 document.title = cfg.appName || 'Auto Poster';
 if (!cfg.signupsOpen) $('tabSignup').hidden = true;
 try {
   me = (await api('me')).user;
   showApp();
 } catch {
-  setAuthTab(location.hash === '#/signup' && cfg.signupsOpen);
+  setAuthTab(location.hash === '#/signup' && !!cfg.signupsOpen);
   showAuth();
 }
