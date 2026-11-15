@@ -542,3 +542,12 @@ main.settings { max-width: 1040px; }
   .auth-card { padding: 22px; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } html { scroll-behavior: auto; } }
+
+/* ---------- server-rendered pages (terms, privacy, landing pages) ---------- */
+.prose { max-width: 720px; margin: 0 auto; padding: 56px 24px 72px; font-size: 15.5px; color: var(--text-2); }
+.prose h1 { font: 700 32px/1.15 var(--font); letter-spacing: -.03em; color: var(--text); margin: 0 0 20px; }
+.prose h2 { font: 600 17px/1.3 var(--font); color: var(--text); margin: 28px 0 8px; }
+.prose li { margin: 6px 0; }
+.hero.solo { grid-template-columns: minmax(0, 1fr); text-align: center; padding-bottom: 32px; }
+.hero.solo .lead { margin-inline: auto; }
+.l-foot a { color: inherit; }
