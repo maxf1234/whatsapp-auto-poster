@@ -3,13 +3,21 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="theme-color" content="#0f9d6b" />
+  <meta name="theme-color" content="#0b7a5c" />
+  <meta name="description" content="Schedule WhatsApp posts to your groups, channels and Status. Write once, send on time, from your own number." />
   <title>Auto Poster</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><defs><linearGradient id=%22g%22 x1=%220%22 y1=%220%22 x2=%221%22 y2=%221%22><stop offset=%220%22 stop-color=%22%2322c58b%22/><stop offset=%221%22 stop-color=%22%230e8f74%22/></linearGradient></defs><rect width=%2232%22 height=%2232%22 rx=%229%22 fill=%22url(%23g)%22/><path d=%22M9 16.5l13-6-4.5 13-2.5-5z%22 fill=%22white%22/></svg>" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
+  <!-- Apply the saved theme before the page paints, so it never flashes. -->
+  <script>
+    try {
+      var t = localStorage.getItem('theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+      if (localStorage.getItem('compact') === '1') document.documentElement.dataset.density = 'compact';
+    } catch (e) {}
+  </script>
 </head>
 <body>
   <!-- Icon sprite: <svg class="i"><use href="#i-name"/></svg> -->
@@ -40,53 +48,133 @@
     <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
     <symbol id="i-status" viewBox="0 0 24 24"><path d="M12 3a9 9 0 0 1 9 9" /><path d="M21 12a9 9 0 0 1-9 9" stroke-dasharray="2.6 2.4"/><path d="M12 21a9 9 0 0 1-9-9M3 12a9 9 0 0 1 9-9" stroke-dasharray="2.6 2.4"/><circle cx="12" cy="12" r="4.2"/></symbol>
     <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4.5" y="10.5" width="15" height="10.5" rx="2.5"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/></symbol>
+    <symbol id="i-card" viewBox="0 0 24 24"><rect x="2.5" y="5" width="19" height="14" rx="3"/><path d="M2.5 10h19M6.5 15h4"/></symbol>
+    <symbol id="i-palette" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18c1.2 0 2-.9 2-2 0-.5-.2-1-.5-1.3-.3-.4-.5-.8-.5-1.3 0-1.1.9-2 2-2h2.3A3.7 3.7 0 0 0 21 10.7C21 6.4 17 3 12 3z"/><circle cx="7.5" cy="11.5" r="1"/><circle cx="10.5" cy="7.5" r="1"/><circle cx="15.5" cy="7.5" r="1"/></symbol>
+    <symbol id="i-device" viewBox="0 0 24 24"><rect x="2.5" y="4" width="19" height="12.5" rx="2.5"/><path d="M8 20.5h8M12 16.5v4"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12M7 10.5l5 5 5-5M4 20.5h16"/></symbol>
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="m3 11 9-7.5 9 7.5"/><path d="M5.5 9.5V20a.5.5 0 0 0 .5.5h4v-6h4v6h4a.5.5 0 0 0 .5-.5V9.5"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20.5 20.5-4.3-4.3"/></symbol>
+    <symbol id="i-mail" viewBox="0 0 24 24"><rect x="2.5" y="4.5" width="19" height="15" rx="3"/><path d="m3.5 7 8.5 6.5L20.5 7"/></symbol>
   </svg>
 
   <!-- ========== Logged out ========== -->
-  <section id="authView" class="auth" hidden>
-    <div class="auth-hero">
-      <div class="brand brand-lg">
-        <span class="logo"><svg class="i"><use href="#i-send"/></svg></span>
-        <span id="authTitle">Auto Poster</span>
-      </div>
-      <h1>Your WhatsApp posts,<br><span class="grad-text">on autopilot.</span></h1>
-      <p class="lead">Write posts ahead of time. They go out to your groups and channels exactly when you want, from your own number.</p>
-      <ul class="feature">
-        <li><span class="fi c-blue"><svg class="i"><use href="#i-cal"/></svg></span><div><b>Schedule anything</b><span>An exact time, a delay, or repeat daily and weekly</span></div></li>
-        <li><span class="fi c-violet"><svg class="i"><use href="#i-layers"/></svg></span><div><b>Drip queue</b><span>One post every few hours, only during your active hours</span></div></li>
-        <li><span class="fi c-amber"><svg class="i"><use href="#i-users"/></svg></span><div><b>Groups & channels</b><span>Text and images, to many places at once</span></div></li>
-      </ul>
-      <!-- A sample of what scheduled posts look like -->
-      <div class="hero-chat" aria-hidden="true">
-        <div class="hero-bubble"><b>🔥 Weekend sale</b><br>Everything 30% off until Sunday<span class="t">9:00 AM ✓✓</span></div>
-        <div class="hero-bubble alt"><b>📣 Reminder</b><br>Live Q&A tonight at 8<span class="t">6:30 PM ✓✓</span></div>
-      </div>
-    </div>
-
-    <div class="auth-panel">
-      <div class="card auth-card">
-        <h2 class="auth-h">Welcome</h2>
-        <p class="muted" style="margin:0 0 18px">Log in or create a free account to get started.</p>
-        <div class="seg seg-full" role="group" aria-label="Log in or sign up">
-          <button type="button" id="tabLogin" aria-pressed="true">Log in</button>
-          <button type="button" id="tabSignup" aria-pressed="false">Create account</button>
+  <div id="authView" class="landing" hidden>
+    <header class="l-nav">
+      <div class="l-nav-in">
+        <a href="#top" class="brand"><span class="logo"><svg class="i"><use href="#i-send"/></svg></span><span id="authTitle">Auto Poster</span></a>
+        <nav class="l-links" aria-label="Sections">
+          <a href="#features">Features</a>
+          <a href="#how">How it works</a>
+          <a href="#pricing">Pricing</a>
+          <a href="#faq">FAQ</a>
+        </nav>
+        <div class="l-cta">
+          <button class="btn ghost small" id="navLogin" type="button">Log in</button>
+          <button class="btn primary small" id="navSignup" type="button">Get started</button>
         </div>
-        <form id="authForm" autocomplete="on">
-          <div id="nameWrap" hidden>
-            <label for="aName">Name</label>
-            <input type="text" id="aName" autocomplete="name" placeholder="Your name" />
-          </div>
-          <label for="aEmail">Email</label>
-          <input type="email" id="aEmail" autocomplete="email" placeholder="you@example.com" required />
-          <label for="aPw">Password</label>
-          <input type="password" id="aPw" autocomplete="current-password" minlength="8" placeholder="At least 8 characters" required />
-          <div class="row"><button class="btn primary wide lg" id="authBtn" type="submit">Log in</button></div>
-          <div class="msg" id="authMsg" role="status"></div>
-        </form>
       </div>
-      <p class="fineprint">Your WhatsApp is linked as a device on your own phone. You can unlink it any time.</p>
-    </div>
-  </section>
+    </header>
+
+    <div class="promo" id="promo" hidden></div>
+    <section class="hero" id="top">
+      <div class="hero-copy">
+        <span class="eyebrow"><span class="dot on"></span>Sends from your own WhatsApp number</span>
+        <h1>Schedule your WhatsApp posts. <span class="accent">Never miss a send.</span></h1>
+        <p class="lead">Write posts ahead of time and they go out to your groups, channels and Status exactly when you want — even while your phone is in your pocket.</p>
+        <ul class="ticks">
+          <li><svg class="i"><use href="#i-check"/></svg>Exact times, delays, and daily or weekly repeats</li>
+          <li><svg class="i"><use href="#i-check"/></svg>A drip queue that spaces posts out inside your active hours</li>
+          <li><svg class="i"><use href="#i-check"/></svg>Failed sends retry on their own and never double-post</li>
+        </ul>
+      </div>
+
+      <div class="auth-panel" id="authPanel">
+        <div class="card auth-card">
+          <h2 class="auth-h" id="authHeading">Welcome back</h2>
+          <p class="muted auth-sub" id="authSub">Log in to your account.</p>
+          <div class="seg seg-full" role="group" aria-label="Log in or sign up">
+            <button type="button" id="tabLogin" aria-pressed="true">Log in</button>
+            <button type="button" id="tabSignup" aria-pressed="false">Create account</button>
+          </div>
+          <form id="authForm" autocomplete="on">
+            <div id="nameWrap" hidden>
+              <label for="aName">Name</label>
+              <input type="text" id="aName" autocomplete="name" placeholder="Your name" />
+            </div>
+            <div id="emailWrap">
+              <label for="aEmail">Email</label>
+              <input type="email" id="aEmail" autocomplete="email" placeholder="you@example.com" required />
+            </div>
+            <div id="pwWrap">
+              <label for="aPw" id="aPwLabel">Password</label>
+              <input type="password" id="aPw" autocomplete="current-password" minlength="8" placeholder="At least 8 characters" required />
+            </div>
+            <div class="forgot-row"><a href="#" id="forgotLink" hidden>Forgot password?</a><a href="#" id="backToLogin" hidden>Back to log in</a></div>
+            <div class="row"><button class="btn primary wide lg" id="authBtn" type="submit">Log in</button></div>
+            <div class="msg" id="authMsg" role="status"></div>
+            <p class="muted terms-note" id="termsNote" hidden>By creating an account you agree to the <a href="/terms">Terms</a> and <a href="/privacy">Privacy Policy</a>.</p>
+          </form>
+        </div>
+        <p class="fineprint"><svg class="i"><use href="#i-lock"/></svg>Your WhatsApp is linked as a device on your own phone. Unlink it any time.</p>
+      </div>
+    </section>
+
+    <section class="l-section demo" id="demo" hidden>
+      <div class="l-head"><h2>See it in action</h2></div>
+      <div class="video" id="demoFrame"></div>
+    </section>
+
+    <section class="l-section" id="features">
+      <div class="l-head"><h2>Everything you need to post on time</h2><p>Built for people who run groups and channels and don't want to be glued to their phone.</p></div>
+      <div class="f-grid">
+        <div class="f-card"><span class="f-ic"><svg class="i"><use href="#i-cal"/></svg></span><h3>Schedule anything</h3><p>Pick an exact date and time, or send in 30 minutes. Repeat a post every day or every week.</p></div>
+        <div class="f-card"><span class="f-ic"><svg class="i"><use href="#i-layers"/></svg></span><h3>Drip queue</h3><p>Load up posts and let them go out one at a time, every few hours, only inside the hours you choose.</p></div>
+        <div class="f-card"><span class="f-ic"><svg class="i"><use href="#i-users"/></svg></span><h3>Groups, channels and Status</h3><p>Send one post to many places at once, including your own WhatsApp Status.</p></div>
+        <div class="f-card"><span class="f-ic"><svg class="i"><use href="#i-image"/></svg></span><h3>Text and images</h3><p>WhatsApp formatting with a live preview, so you see the post exactly as your audience will.</p></div>
+        <div class="f-card"><span class="f-ic"><svg class="i"><use href="#i-repeat"/></svg></span><h3>Reliable sending</h3><p>If your phone is offline the post retries every five minutes, and never sends twice to the same place.</p></div>
+        <div class="f-card"><span class="f-ic"><svg class="i"><use href="#i-lock"/></svg></span><h3>Your number, your account</h3><p>Posts come from your own number. Your account only ever sees your own posts.</p></div>
+        <div class="f-card"><span class="f-ic"><svg class="i"><use href="#i-grid"/></svg></span><h3>Bulk upload and feeds</h3><p>Paste a month of posts at once, or connect an RSS feed and let new items post themselves.</p></div>
+        <div class="f-card"><span class="f-ic"><svg class="i"><use href="#i-eye"/></svg></span><h3>Know what gets clicked</h3><p>Tracked links count clicks, and show which hours your audience is most active.</p></div>
+        <div class="f-card"><span class="f-ic"><svg class="i"><use href="#i-star"/></svg></span><h3>Polls, video, PDFs and templates</h3><p>More than text and images, with saved templates for the posts you send again and again.</p></div>
+      </div>
+    </section>
+
+    <section class="l-section alt" id="how">
+      <div class="l-head"><h2>Up and running in three steps</h2></div>
+      <ol class="how">
+        <li><span class="n">1</span><h3>Link your WhatsApp</h3><p>Enter your number and type the pairing code on your phone. No QR code to scan.</p></li>
+        <li><span class="n">2</span><h3>Choose where to post</h3><p>Pick from your groups, or paste a group invite or channel link.</p></li>
+        <li><span class="n">3</span><h3>Write and schedule</h3><p>Send now, at a set time, on repeat, or add it to the queue.</p></li>
+      </ol>
+    </section>
+
+    <section class="l-section" id="pricing">
+      <div class="l-head"><h2>Simple pricing</h2><p id="pricingSub">Start free. Upgrade when you need more.</p></div>
+      <div class="price-grid" id="landingPlans"></div>
+    </section>
+
+    <section class="l-section alt" id="faq">
+      <div class="l-head"><h2>Questions</h2></div>
+      <div class="faq">
+        <details><summary>Does my phone need to be on?</summary><p>No. Once your number is linked, posts are sent for you. Your phone only needs to come online now and then so WhatsApp keeps the link active.</p></details>
+        <details><summary>Which number do posts come from?</summary><p>Your own. You link your WhatsApp the same way you link WhatsApp Web, and you can unlink it at any time from your phone or from here.</p></details>
+        <details><summary>Can I post to channels?</summary><p>Yes, to channels your number owns or is an admin of, and to groups your number is a member of.</p></details>
+        <details><summary>What happens if a post fails?</summary><p>It retries every five minutes for a day. Places it already reached are remembered, so nothing is sent twice.</p></details>
+        <details><summary>Can I cancel?</summary><p>Any time, from your account page. You keep what you paid for until the end of the period.</p></details>
+      </div>
+    </section>
+
+    <section class="l-final">
+      <h2>Ready to stop posting by hand?</h2>
+      <button class="btn primary lg" id="finalSignup" type="button">Create your free account</button>
+    </section>
+
+    <footer class="l-foot">
+      <span class="brand"><span class="logo sm"><svg class="i"><use href="#i-send"/></svg></span><span id="footTitle">Auto Poster</span></span>
+      <span class="muted"><a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · Not affiliated with WhatsApp or Meta.</span>
+    </footer>
+  </div>
 
   <!-- ========== Logged in ========== -->
   <div id="appView" hidden>
@@ -96,24 +184,28 @@
           <span class="logo"><svg class="i"><use href="#i-send"/></svg></span>
           <span id="appName">Auto Poster</span>
         </a>
-        <span class="badge" id="planBadge"></span>
-        <span class="wa-pill" id="waPill"></span>
-        <nav class="nav">
+        <nav class="nav" aria-label="Main">
           <a href="#/" data-view="dash"><svg class="i"><use href="#i-grid"/></svg><span>Dashboard</span></a>
           <a href="#/account" data-view="account"><svg class="i"><use href="#i-user"/></svg><span>Account</span></a>
           <a href="#/admin" data-view="admin" id="adminLink" hidden><svg class="i"><use href="#i-shield"/></svg><span>Admin</span></a>
-          <button type="button" id="logout" title="Log out"><svg class="i"><use href="#i-logout"/></svg><span>Log out</span></button>
         </nav>
+        <div class="top-right">
+          <span class="badge" id="planBadge"></span>
+          <span class="wa-pill" id="waPill"></span>
+          <a href="#/account" class="avatar" id="avatar" title="Account" aria-label="Account"></a>
+          <button type="button" class="icon-btn" id="logout" title="Log out" aria-label="Log out"><svg class="i"><use href="#i-logout"/></svg></button>
+        </div>
       </div>
     </header>
     <div class="banner" id="banner" hidden><div id="bannerText"></div></div>
+    <div class="banner notice" id="trialBar" hidden><div><span id="trialText"></span> <a href="#/account/plan">See plans</a></div></div>
 
     <!-- Dashboard -->
     <main class="dash" id="dashView">
       <div class="stack">
         <section class="card composer">
           <div class="card-h">
-            <span class="ic c-green"><svg class="i"><use href="#i-pen"/></svg></span>
+            <span class="ic"><svg class="i"><use href="#i-pen"/></svg></span>
             <div><h2>New post</h2><p>Write it once, send it whenever</p></div>
           </div>
 
@@ -123,14 +215,34 @@
               <button type="button" data-wrap="_" title="Italic"><i>I</i></button>
               <button type="button" data-wrap="~" title="Strikethrough"><s>S</s></button>
               <button type="button" data-wrap="```" title="Monospace"><code>{ }</code></button>
+              <span class="tools-gap"></span>
+              <select id="tplSelect" class="inline" aria-label="Templates"></select>
+              <button type="button" id="tplSave" title="Save this text as a template">Save</button>
+              <button type="button" id="aiBtn" title="Write it for me" hidden>✨ AI</button>
             </div>
             <label for="text" hidden>Text</label>
             <textarea id="text" placeholder="What do you want to share? Use *bold*, _italic_ and ~strike~"></textarea>
           </div>
 
+          <div class="whenbox" id="aiBox" hidden>
+            <input type="text" id="aiPrompt" class="inline grow" placeholder="What is the post about? e.g. 20% off shoes this weekend" aria-label="What the post is about" />
+            <select id="aiTone" class="inline" aria-label="Tone"></select>
+            <button class="btn soft small" id="aiGo" type="button">Write it</button>
+          </div>
+
           <div class="drop" id="drop">
-            <input type="file" id="file" accept="image/jpeg,image/png,image/webp" aria-label="Image" />
-            <div id="dropInner"><span class="drop-ic"><svg class="i"><use href="#i-image"/></svg></span><span><b>Add an image</b> · tap, drop or paste<br><small>Optional · JPEG, PNG or WebP</small></span></div>
+            <input type="file" id="file" accept="image/jpeg,image/png,image/webp,video/mp4,application/pdf" aria-label="Attachment" />
+            <div id="dropInner"></div>
+          </div>
+
+          <div class="extras">
+            <label class="chk"><input type="checkbox" id="pollOn" /> Make it a poll</label>
+            <label class="chk" id="trackWrap" hidden><input type="checkbox" id="trackOn" /> Count link clicks <span class="badge pro" id="trackPro" hidden>Pro</span></label>
+          </div>
+          <div class="whenbox col" id="pollBox" hidden>
+            <span class="muted">The text above is the question. Options, one per line:</span>
+            <textarea id="pollOpts" style="min-height:92px" placeholder="Option 1&#10;Option 2" aria-label="Poll options"></textarea>
+            <label class="chk"><input type="checkbox" id="pollMulti" /> Allow more than one answer</label>
           </div>
 
           <div class="field-h">Send to</div>
@@ -156,7 +268,7 @@
             <svg class="i muted-i"><use href="#i-repeat"/></svg>
             <label for="repeat" style="margin:0">Repeat</label>
             <select id="repeat" class="inline">
-              <option value="none">Don't repeat</option><option value="daily">Every day</option><option value="weekly">Every week</option>
+              <option value="none">Don't repeat</option><option value="daily">Every day</option><option value="weekdays">Every weekday (Mon–Fri)</option><option value="every2">Every 2 days</option><option value="weekly">Every week</option><option value="biweekly">Every 2 weeks</option><option value="monthly">Every month</option>
             </select>
             <span class="badge pro" id="repeatPro" hidden>Pro</span>
           </div>
@@ -171,7 +283,7 @@
 
         <section class="card">
           <div class="card-h">
-            <span class="ic c-blue"><svg class="i"><use href="#i-cal"/></svg></span>
+            <span class="ic"><svg class="i"><use href="#i-cal"/></svg></span>
             <div><h2>Scheduled</h2><p>Posts going out at a set time</p></div>
             <span class="count-pill" id="schedCount"></span>
           </div>
@@ -180,8 +292,29 @@
 
         <section class="card">
           <div class="card-h">
-            <span class="ic c-violet"><svg class="i"><use href="#i-layers"/></svg></span>
+            <span class="ic"><svg class="i"><use href="#i-grid"/></svg></span>
+            <div><h2>Calendar</h2><p id="calTitle"></p></div>
+            <div class="push cal-nav"><button class="btn ghost small" id="calPrev" type="button" aria-label="Previous month">‹</button><button class="btn ghost small" id="calNext" type="button" aria-label="Next month">›</button></div>
+          </div>
+          <div class="cal" id="cal"></div>
+        </section>
+
+        <section class="card">
+          <div class="card-h">
+            <span class="ic"><svg class="i"><use href="#i-layers"/></svg></span>
             <div><h2>Queue</h2><p>One at a time, spaced out for you</p></div>
+            <button class="btn ghost small push" id="bulkBtn" type="button">Bulk add</button>
+          </div>
+          <div class="status-editor" id="bulkBox" hidden style="margin:0 0 12px">
+            <b>Add many posts at once</b>
+            <p class="hint" style="margin-top:4px">One post per line. They join the queue, going to the places ticked under “Send to”. To schedule a line instead, start it with a date and time: <code>2026-12-24 09:00 | Merry Christmas!</code></p>
+            <textarea id="bulkText" style="min-height:130px" placeholder="First post&#10;Second post&#10;2026-12-24 09:00 | A scheduled post" aria-label="Posts, one per line"></textarea>
+            <div class="row">
+              <label class="btn ghost small filebtn">Load a .csv or .txt file<input type="file" id="bulkFile" accept=".csv,.txt,text/csv,text/plain" hidden /></label>
+              <button class="btn ghost small" id="bulkCancel" type="button">Cancel</button>
+              <button class="btn primary small" id="bulkGo" type="button">Add posts</button>
+            </div>
+            <div class="msg" id="bulkMsg" role="status"></div>
           </div>
           <div class="qsettings">
             <label>Send one <select id="qInterval" class="inline" aria-label="Interval"></select></label>
@@ -197,7 +330,7 @@
       <aside class="stack">
         <section class="card">
           <div class="card-h">
-            <span class="ic c-green"><svg class="i"><use href="#i-phone"/></svg></span>
+            <span class="ic"><svg class="i"><use href="#i-phone"/></svg></span>
             <div><h2>WhatsApp</h2><p>The number your posts come from</p></div>
           </div>
           <div id="waStatus" class="wa-status">Checking…</div>
@@ -221,7 +354,7 @@
 
         <section class="card">
           <div class="card-h">
-            <span class="ic c-amber"><svg class="i"><use href="#i-users"/></svg></span>
+            <span class="ic"><svg class="i"><use href="#i-users"/></svg></span>
             <div><h2>Where to post</h2><p>Groups, channels and your Status</p></div>
             <span class="count-pill" id="targetCount"></span>
           </div>
@@ -264,16 +397,26 @@
 
         <section class="card">
           <div class="card-h">
-            <span class="ic c-teal"><svg class="i"><use href="#i-eye"/></svg></span>
+            <span class="ic"><svg class="i"><use href="#i-eye"/></svg></span>
             <div><h2>Preview</h2><p>How it will look in WhatsApp</p></div>
           </div>
           <div class="chat"><div class="bubble" id="preview"></div></div>
           <div class="count" id="count"></div>
         </section>
 
+        <section class="card" id="linksCard" hidden>
+          <div class="card-h">
+            <span class="ic"><svg class="i"><use href="#i-bolt"/></svg></span>
+            <div><h2>Link clicks</h2><p id="linksSub">From posts with “Count link clicks” on</p></div>
+            <span class="count-pill" id="linksTotal"></span>
+          </div>
+          <div class="hint" id="bestHours" style="margin:0 0 10px"></div>
+          <ul class="list" id="linksList"></ul>
+        </section>
+
         <section class="card">
           <div class="card-h">
-            <span class="ic c-rose"><svg class="i"><use href="#i-history"/></svg></span>
+            <span class="ic"><svg class="i"><use href="#i-history"/></svg></span>
             <div><h2>Recently sent</h2><p>Your last few posts</p></div>
           </div>
           <ul class="list" id="history"></ul>
@@ -282,75 +425,199 @@
     </main>
 
     <!-- Account -->
-    <main id="accountView" class="narrow" hidden>
-      <div class="page-h">
-        <h1>Account</h1>
-        <p>Your plan, settings and security.</p>
-      </div>
-      <section class="card" id="billingCard">
-        <div class="card-h">
-          <span class="ic c-violet"><svg class="i"><use href="#i-star"/></svg></span>
-          <div><h2>Plan</h2><p>What your account can do</p></div>
-        </div>
-        <div id="planInfo"></div>
-        <div class="plans" id="plans"></div>
-        <div class="row">
-          <button class="btn pro lg" id="upgrade" type="button" hidden>Upgrade to Pro</button>
-          <button class="btn ghost" id="manageBilling" type="button" hidden>Manage billing</button>
-        </div>
-        <div class="msg" id="billingMsg" role="status"></div>
-      </section>
+    <main id="accountView" class="settings" hidden>
+      <aside class="side">
+        <div class="side-h">Account</div>
+        <nav class="side-nav" id="accountNav" aria-label="Account sections">
+          <a href="#/account" data-sec="overview"><svg class="i"><use href="#i-home"/></svg>Overview</a>
+          <a href="#/account/profile" data-sec="profile"><svg class="i"><use href="#i-user"/></svg>Profile</a>
+          <a href="#/account/posting" data-sec="posting"><svg class="i"><use href="#i-pen"/></svg>Posting</a>
+          <a href="#/account/appearance" data-sec="appearance"><svg class="i"><use href="#i-palette"/></svg>Appearance</a>
+          <a href="#/account/plan" data-sec="plan"><svg class="i"><use href="#i-card"/></svg>Plan &amp; billing</a>
+          <a href="#/account/refer" data-sec="refer"><svg class="i"><use href="#i-star"/></svg>Refer a friend</a>
+          <a href="#/account/security" data-sec="security"><svg class="i"><use href="#i-lock"/></svg>Security</a>
+          <a href="#/account/data" data-sec="data"><svg class="i"><use href="#i-download"/></svg>Your data</a>
+        </nav>
+      </aside>
 
-      <section class="card">
-        <div class="card-h">
-          <span class="ic c-blue"><svg class="i"><use href="#i-settings"/></svg></span>
-          <div><h2>Settings</h2><p>How your posts look and when they go</p></div>
+      <div class="stack">
+        <!-- Overview -->
+        <div class="sec" data-sec="overview">
+          <section class="card profile-card">
+            <span class="avatar xl" id="ovAvatar"></span>
+            <div class="profile-id">
+              <h1 id="ovName"></h1>
+              <div class="muted" id="ovEmail"></div>
+              <div class="chips" id="ovChips"></div>
+            </div>
+            <a class="btn ghost small" href="#/account/profile">Edit profile</a>
+          </section>
+          <div class="tiles" id="ovTiles"></div>
+          <section class="card">
+            <div class="card-h"><span class="ic"><svg class="i"><use href="#i-phone"/></svg></span><div><h2>WhatsApp</h2><p>The number your posts come from</p></div></div>
+            <div class="wa-status" id="ovWa">Checking…</div>
+            <div class="row"><a class="btn ghost small" href="#/">Manage on the dashboard</a></div>
+          </section>
         </div>
-        <div class="grid2">
-          <div>
-            <label for="sName">Name</label>
-            <input type="text" id="sName" />
-          </div>
-          <div>
-            <label for="sTz">Time zone</label>
-            <select id="sTz"></select>
-          </div>
-        </div>
-        <label for="sFooter">Footer, added to the end of every post (optional)</label>
-        <textarea id="sFooter" style="min-height:80px" placeholder="📲 Follow for more"></textarea>
-        <div class="row"><button class="btn primary" id="saveSettings" type="button">Save changes</button></div>
-        <div class="msg" id="settingsMsg" role="status"></div>
-      </section>
 
-      <section class="card">
-        <div class="card-h">
-          <span class="ic c-amber"><svg class="i"><use href="#i-key"/></svg></span>
-          <div><h2>Password</h2><p>Changing it logs out your other devices</p></div>
+        <!-- Profile -->
+        <div class="sec" data-sec="profile" hidden>
+          <section class="card">
+            <div class="card-h"><span class="ic"><svg class="i"><use href="#i-user"/></svg></span><div><h2>Profile</h2><p>Your name and time zone</p></div></div>
+            <div class="grid2">
+              <div><label for="sName">Name</label><input type="text" id="sName" autocomplete="name" /></div>
+              <div><label for="sTz">Time zone</label><select id="sTz"></select></div>
+            </div>
+            <div class="hint">Repeating posts and the queue's active hours follow this time zone.</div>
+            <div class="row"><button class="btn primary" id="saveProfile" type="button">Save changes</button></div>
+            <div class="msg" id="profileMsg" role="status"></div>
+          </section>
+          <section class="card">
+            <div class="card-h"><span class="ic"><svg class="i"><use href="#i-mail"/></svg></span><div><h2>Email</h2><p>The address you log in with</p></div></div>
+            <div class="grid2">
+              <div><label for="emNew">New email</label><input type="email" id="emNew" autocomplete="email" /></div>
+              <div><label for="emPw">Your password</label><input type="password" id="emPw" autocomplete="current-password" /></div>
+            </div>
+            <div class="row"><button class="btn primary" id="changeEmail" type="button">Change email</button></div>
+            <div class="msg" id="emailMsg" role="status"></div>
+          </section>
         </div>
-        <div class="grid2">
-          <div>
+
+        <!-- Posting -->
+        <div class="sec" data-sec="posting" hidden>
+          <section class="card">
+            <div class="card-h"><span class="ic"><svg class="i"><use href="#i-pen"/></svg></span><div><h2>Footer</h2><p>Added to the end of every post</p></div></div>
+            <label for="sFooter" class="sr">Footer</label>
+            <textarea id="sFooter" style="min-height:90px" placeholder="📲 Follow for more"></textarea>
+            <div class="hint">Leave empty for no footer. The preview on the dashboard shows it.</div>
+            <div class="row"><button class="btn primary" id="saveFooter" type="button">Save footer</button></div>
+            <div class="msg" id="footerMsg" role="status"></div>
+          </section>
+          <section class="card">
+            <div class="card-h"><span class="ic"><svg class="i"><use href="#i-settings"/></svg></span><div><h2>Composer</h2><p>How the new-post box behaves</p></div></div>
+            <div class="opt">
+              <div><b>When a new post starts on</b><span>Which “When” option is selected when you open the dashboard.</span></div>
+              <select id="pWhen" class="inline" aria-label="Default when">
+                <option value="last">The one I used last</option>
+                <option value="now">Now</option>
+                <option value="delay">In…</option>
+                <option value="at">At a time</option>
+                <option value="queue">Queue</option>
+              </select>
+            </div>
+            <div class="opt">
+              <div><b>Ask before posting now</b><span>Shows a confirmation before “Post now” sends straight away.</span></div>
+              <label class="switch"><input type="checkbox" id="pConfirm" /><span></span></label>
+            </div>
+            <div class="msg" id="postingMsg" role="status"></div>
+          </section>
+          <section class="card">
+            <div class="card-h"><span class="ic"><svg class="i"><use href="#i-layers"/></svg></span><div><h2>Templates</h2><p>Saved posts you can reuse from the composer</p></div></div>
+            <ul class="list" id="tplList"></ul>
+            <div class="msg" id="tplMsg" role="status"></div>
+          </section>
+          <section class="card">
+            <div class="card-h"><span class="ic"><svg class="i"><use href="#i-repeat"/></svg></span><div><h2>Post from a feed <span class="badge pro" id="feedPro" hidden>Pro</span></h2><p>New items in an RSS feed are added to your queue automatically</p></div></div>
+            <ul class="list" id="feedList"></ul>
+            <label for="feedUrl">Feed address</label>
+            <input type="text" id="feedUrl" placeholder="https://example.com/feed.xml" />
+            <label for="feedTpl">Post text</label>
+            <textarea id="feedTpl" style="min-height:70px">{title}
+
+{link}</textarea>
+            <div class="field-h" style="margin-top:14px">Post to</div>
+            <div class="checks" id="feedTargets"></div>
+            <div class="row"><button class="btn primary" id="feedAdd" type="button">Connect feed</button></div>
+            <div class="hint">Checked every 15 minutes. Items already in the feed when you connect it are not posted.</div>
+            <div class="msg" id="feedMsg" role="status"></div>
+          </section>
+        </div>
+
+        <!-- Appearance -->
+        <div class="sec" data-sec="appearance" hidden>
+          <section class="card">
+            <div class="card-h"><span class="ic"><svg class="i"><use href="#i-palette"/></svg></span><div><h2>Appearance</h2><p>Saved to your account, on every device</p></div></div>
+            <div class="opt">
+              <div><b>Theme</b><span>System follows your device's light or dark setting.</span></div>
+              <div class="seg" id="pTheme" role="group" aria-label="Theme">
+                <button type="button" data-theme="system">System</button>
+                <button type="button" data-theme="light">Light</button>
+                <button type="button" data-theme="dark">Dark</button>
+              </div>
+            </div>
+            <div class="opt">
+              <div><b>Compact layout</b><span>Tighter spacing, to fit more on screen.</span></div>
+              <label class="switch"><input type="checkbox" id="pCompact" /><span></span></label>
+            </div>
+            <div class="msg" id="appearanceMsg" role="status"></div>
+          </section>
+        </div>
+
+        <!-- Plan -->
+        <div class="sec" data-sec="plan" hidden>
+          <section class="card" id="billingCard">
+            <div class="card-h"><span class="ic"><svg class="i"><use href="#i-card"/></svg></span><div><h2>Plan &amp; billing</h2><p>What your account can do</p></div></div>
+            <div id="planInfo"></div>
+            <div class="seg" id="planInterval" role="group" aria-label="Billing period" hidden style="margin-top:16px">
+              <button type="button" data-interval="month" aria-pressed="true">Monthly</button>
+              <button type="button" data-interval="year" aria-pressed="false">Yearly · save more</button>
+            </div>
+            <div class="plans" id="plans"></div>
+            <div class="row">
+              <button class="btn pro lg" id="upgrade" type="button" hidden>Upgrade to Pro</button>
+              <button class="btn ghost" id="manageBilling" type="button" hidden>Manage billing</button>
+            </div>
+            <div class="msg" id="billingMsg" role="status"></div>
+          </section>
+        </div>
+
+        <!-- Refer -->
+        <div class="sec" data-sec="refer" hidden>
+          <section class="card">
+            <div class="card-h"><span class="ic"><svg class="i"><use href="#i-star"/></svg></span><div><h2>Refer a friend</h2><p>Get a free month of Pro for every friend who upgrades</p></div></div>
+            <label for="refLink">Your link</label>
+            <div class="inline-row"><input type="text" id="refLink" readonly /><button class="btn soft small" id="refCopy" type="button">Copy</button></div>
+            <div class="tiles" id="refTiles" style="margin-top:16px"></div>
+            <div class="hint" id="refNote"></div>
+          </section>
+        </div>
+
+        <!-- Security -->
+        <div class="sec" data-sec="security" hidden>
+          <section class="card">
+            <div class="card-h"><span class="ic"><svg class="i"><use href="#i-key"/></svg></span><div><h2>Password</h2><p>Changing it logs out your other devices</p></div></div>
             <label for="pwCur">Current password</label>
             <input type="password" id="pwCur" autocomplete="current-password" />
-          </div>
-          <div>
-            <label for="pwNew">New password (8+ characters)</label>
-            <input type="password" id="pwNew" autocomplete="new-password" />
-          </div>
+            <div class="grid2">
+              <div><label for="pwNew">New password (8+ characters)</label><input type="password" id="pwNew" autocomplete="new-password" /></div>
+              <div><label for="pwNew2">Repeat new password</label><input type="password" id="pwNew2" autocomplete="new-password" /></div>
+            </div>
+            <div class="row"><button class="btn primary" id="changePw" type="button">Change password</button></div>
+            <div class="msg" id="pwMsg" role="status"></div>
+          </section>
+          <section class="card">
+            <div class="card-h"><span class="ic"><svg class="i"><use href="#i-device"/></svg></span><div><h2>Devices</h2><p>Where your account is logged in</p></div>
+              <button class="btn ghost small push" id="revokeOthers" type="button">Log out other devices</button></div>
+            <ul class="list" id="sessionList"></ul>
+            <div class="msg" id="sessionMsg" role="status"></div>
+          </section>
         </div>
-        <div class="row"><button class="btn primary" id="changePw" type="button">Change password</button></div>
-        <div class="msg" id="pwMsg" role="status"></div>
-      </section>
 
-      <section class="card danger-zone">
-        <div class="card-h">
-          <span class="ic c-red"><svg class="i"><use href="#i-trash"/></svg></span>
-          <div><h2>Delete account</h2><p>Removes your account and every scheduled post, and unlinks WhatsApp. This can't be undone.</p></div>
+        <!-- Data -->
+        <div class="sec" data-sec="data" hidden>
+          <section class="card">
+            <div class="card-h"><span class="ic"><svg class="i"><use href="#i-download"/></svg></span><div><h2>Download your data</h2><p>Your settings, places, waiting posts and recent history, as a file</p></div></div>
+            <div class="row" style="margin-top:0"><a class="btn ghost" href="api/me/export" download>Download</a></div>
+          </section>
+          <section class="card danger-zone">
+            <div class="card-h"><span class="ic c-red"><svg class="i"><use href="#i-trash"/></svg></span><div><h2>Delete account</h2><p>Removes your account and every scheduled post, and unlinks WhatsApp. This can't be undone.</p></div></div>
+            <label for="delPw">Confirm with your password</label>
+            <input type="password" id="delPw" autocomplete="current-password" />
+            <div class="row"><button class="btn danger" id="deleteAccount" type="button">Delete my account</button></div>
+            <div class="msg" id="delMsg" role="status"></div>
+          </section>
         </div>
-        <label for="delPw">Confirm with your password</label>
-        <input type="password" id="delPw" autocomplete="current-password" />
-        <div class="row"><button class="btn danger" id="deleteAccount" type="button">Delete my account</button></div>
-        <div class="msg" id="delMsg" role="status"></div>
-      </section>
+      </div>
     </main>
 
     <!-- Admin -->
@@ -358,8 +625,25 @@
       <div class="page-h">
         <h1>Admin</h1>
         <p id="adminSummary"></p>
+        <div class="row" style="margin-top:12px"><a class="btn ghost small" href="api/admin/backup" download>Download a backup</a></div>
       </div>
+      <div class="tiles" id="adminTiles"></div>
       <section class="card">
+        <div class="card-h"><span class="ic"><svg class="i"><use href="#i-users"/></svg></span><div><h2>New accounts</h2><p>Per week, last 8 weeks</p></div></div>
+        <div class="bars" id="adminChart"></div>
+      </section>
+      <section class="card">
+        <div class="toolbar">
+          <div class="search"><svg class="i"><use href="#i-search"/></svg><input type="text" id="adminSearch" placeholder="Search by email or name" aria-label="Search accounts" /></div>
+          <select id="adminFilter" class="inline" aria-label="Show">
+            <option value="all">All accounts</option>
+            <option value="admin">Admins</option>
+            <option value="pro">On Pro</option>
+            <option value="free">On Free</option>
+            <option value="linked">WhatsApp linked</option>
+            <option value="disabled">Disabled</option>
+          </select>
+        </div>
         <div class="scroll"><table class="table" id="adminTable"></table></div>
         <div class="msg" id="adminMsg" role="status"></div>
       </section>

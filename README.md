@@ -69,6 +69,19 @@ device, mostly in the first minutes after linking. The Status editor shows how
 many have been picked up. If it stays at 0, unlink and link again, or use
 groups or numbers for the audience instead.
 
+## Accounts and admin
+
+The **first account that signs up is the admin**. Admins get an **Admin** page:
+totals (accounts, active this week, posts, paying), search and filters, plan
+overrides, password resets, disable / delete, and **Make admin / Remove admin**
+for other accounts. You can't remove your own admin access, and addresses in
+`ADMIN_EMAILS` are always admins.
+
+Everyone gets an **Account** page with: overview and usage, profile (name, time
+zone), change email, post footer, composer defaults, light / dark / compact
+appearance, plan and billing, change password, logged-in devices (log out one
+or all others), a data download, and delete account.
+
 ## Switching on payments (later)
 
 Nothing is charged until you do this:
@@ -99,6 +112,40 @@ that one object to change them.
 When billing turns on, existing users drop to Free unless they subscribe.
 That includes you, so give yourself (and anyone you want to comp) **Pro**
 from the Admin page. An admin's plan choice overrides Stripe.
+
+## Optional features and their settings
+
+All of these are Railway **Variables**. Everything works without them; each one
+switches something extra on.
+
+| Variable | What it does |
+| --- | --- |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM` | Turns on email: forgot-password links, welcome and reminder emails, failed-payment notices, "your WhatsApp was unlinked" alerts. Gmail works: host `smtp.gmail.com`, port `465`, your address, and an App Password. |
+| `TRIAL_DAYS` | Days of free Pro for new accounts once billing is on. Default `7`; `0` turns the trial off. |
+| `STRIPE_PRICE_ID_YEARLY`, `PRO_YEARLY_LABEL` | Adds a yearly Pro option (label e.g. `$90 / year`). |
+| `STRIPE_PRICE_ID_BUSINESS`, `BUSINESS_PRICE_LABEL` | Adds the Business plan (20,000 posts a month, 250 places). `STRIPE_PRICE_ID_BUSINESS_YEARLY` + `BUSINESS_YEARLY_LABEL` for yearly. |
+| `FREE_BRANDING` | Free-plan posts end with "Sent with <app name>". On by default when billing is on; `0` turns it off. |
+| `PROMO_TEXT` | A banner across the top of the landing page, e.g. a launch discount code. Create the code in Stripe; checkout already accepts promo codes. |
+| `DAILY_SEND_CAP` | Most sends one account can make per day (default `300`). Extra posts wait until tomorrow. Protects numbers from WhatsApp bans. |
+| `ANTHROPIC_API_KEY` | Turns on the AI caption writer (a paid-plan feature). `AI_MODEL` changes the model. |
+| `DEMO_VIDEO_URL` | Shows a demo video on the landing page (a YouTube embed link or an .mp4). |
+| `SUPPORT_EMAIL` | Shown on the Terms and Privacy pages. |
+
+What paid plans unlock beyond higher limits: repeating posts, link click
+tracking, the AI writer, posting from an RSS feed, and no "Sent with" line.
+
+**Referrals:** every account has a link under Account → Refer a friend. When
+someone signs up with it and upgrades, the referrer gets 30 days of Pro.
+
+**Backups:** a copy of the data file is saved every day under `backups/` on
+the volume (the last 14 are kept), and admins can download one from the Admin
+page.
+
+**Public pages:** `/terms`, `/privacy`, and search landing pages
+(`/schedule-whatsapp-messages`, `/whatsapp-channel-scheduler`,
+`/for/deal-channels`, `/for/real-estate`, `/for/communities`), plus
+`/sitemap.xml`. The Terms and Privacy text is a starting template: have it
+checked before you rely on it.
 
 ## How it's built
 
