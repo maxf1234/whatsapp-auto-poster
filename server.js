@@ -10,6 +10,7 @@
 // `npm start`
 
 import { createServer } from 'node:http';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { readFile } from 'node:fs/promises';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { extname, join } from 'node:path';
@@ -77,15 +78,18 @@ export function config(env = process.env) {
     prices: {
       pro: { month: env.STRIPE_PRICE_ID || '', year: env.STRIPE_PRICE_ID_YEARLY || '' },
       business: { month: env.STRIPE_PRICE_ID_BUSINESS || '', year: env.STRIPE_PRICE_ID_BUSINESS_YEARLY || '' },
+      agency: { month: env.STRIPE_PRICE_ID_AGENCY || '', year: env.STRIPE_PRICE_ID_AGENCY_YEARLY || '' },
     },
     priceLabels: {
       pro: { month: env.PRO_PRICE_LABEL || '$9 / month', year: env.PRO_YEARLY_LABEL || '$90 / year' },
       business: { month: env.BUSINESS_PRICE_LABEL || '$29 / month', year: env.BUSINESS_YEARLY_LABEL || '$290 / year' },
+      agency: { month: env.AGENCY_PRICE_LABEL || '$99 / month', year: env.AGENCY_YEARLY_LABEL || '$990 / year' },
     },
     trialDays: env.TRIAL_DAYS === undefined || env.TRIAL_DAYS === '' ? 7 : Math.max(0, Number(env.TRIAL_DAYS) || 0),
     freeBranding: !off(env.FREE_BRANDING), // "Sent with …" under Free-plan posts
     promoText: (env.PROMO_TEXT || '').slice(0, 200),
     demoVideoUrl: /^https:\/\//.test(env.DEMO_VIDEO_URL || '') ? env.DEMO_VIDEO_URL : '',
+    brandColor: /^#[0-9a-f]{6}$/i.test(env.BRAND_COLOR || '') ? env.BRAND_COLOR : '',
     supportEmail: env.SUPPORT_EMAIL || '',
     dailySendCap: Number(env.DAILY_SEND_CAP) || 300, // sends per account per day, to stay clear of WhatsApp bans
     smtp: { host: env.SMTP_HOST || '', port: Number(env.SMTP_PORT) || 587, user: env.SMTP_USER || '', pass: env.SMTP_PASS || '', from: env.MAIL_FROM || '' },
@@ -139,6 +143,30 @@ export async function createApp(cfg = config(), { db, wa, now = Date.now, stripe
   captioner ??= createCaptioner({ apiKey: cfg.anthropicKey, model: cfg.aiModel });
   db.data.links ??= {};
   db.data.meta ??= {};
+  // Site settings an admin can change from the Admin page; they override the
+  // matching environment variables.
+  const SITE_KEYS = ['appName', 'promoText', 'demoVideoUrl', 'supportEmail', 'brandColor'];
+  const siteDefaults = Object.fromEntries(SITE_KEYS.map((k) => [k, cfg[k] ?? '']));
+  const applySite = () => { for (const k of SITE_KEYS) cfg[k] = db.data.meta.site?.[k] || siteDefaults[k]; };
+  applySite();
+
+  // Team members work inside their owner's account ("workspace"). `actor`
+  // remembers who is really logged in while a request runs.
+  const actor = new AsyncLocalStorage();
+  const wsOf = (user) => (user.teamOwnerId && db.data.users[user.teamOwnerId]) || user;
+  const membersOf = (owner) => Object.values(db.data.users).filter((u) => u.teamOwnerId === owner.id);
+
+  // Each WhatsApp number an account links is its own connection. The first
+  // number keeps the account id as its key; extra numbers add their own id.
+  const connKey = (user, numberId) => (numberId ? `${user.id}_${numberId}` : user.id);
+  const connKeys = (user) => [user.id, ...(user.numbers ?? []).map((n) => connKey(user, n.id))];
+  function numberOf(user, id) {
+    if (!id) return '';
+    if (!(user.numbers ?? []).some((n) => n.id === id)) throw fail('Unknown WhatsApp number — reload the page', 404);
+    return id;
+  }
+  const connFor = (req, user) => wa.get(connKey(user, numberOf(user, new URL(req.url, 'http://x').searchParams.get('n'))));
+
   const planFor = (user) => planOf(user, cfg, now());
   const limitsFor = (user) => PLANS[planFor(user)];
   const dayKey = (user) => new Date(now()).toLocaleDateString('en-CA', { timeZone: user.timeZone });
@@ -160,7 +188,7 @@ export async function createApp(cfg = config(), { db, wa, now = Date.now, stripe
       log.log(`[dry-run] ${user.email} → ${target.name}${who}${image ? ' (+ image)' : ''}\n${caption}\n`);
       return;
     }
-    const conn = wa.get(user.id);
+    const conn = wa.get(connKey(user, target.numberId));
     if (target.kind !== 'status') return conn.send(target.jid, { caption, image, ...(poll ? { poll } : {}) });
     // Status: WhatsApp only shows it to the people listed with it.
     const statusJidList = await conn.statusAudience(target.audience);
@@ -209,8 +237,14 @@ export async function createApp(cfg = config(), { db, wa, now = Date.now, stripe
   function userView(user) {
     const plan = planFor(user);
     const t = now();
-    const referred = Object.values(db.data.users).filter((u) => u.referredBy === user.id);
+    // For a team member, `user` is the workspace and `self` is the person.
+    const logged = actor.getStore();
+    const self = logged && wsOf(logged) === user ? logged : user;
+    const referred = Object.values(db.data.users).filter((u) => u.referredBy === self.id);
     return {
+      numbers: [{ id: '', label: user.numberLabel || 'Main number' }, ...(user.numbers ?? []).map(({ id, label }) => ({ id, label }))],
+      team: self !== user ? { role: 'member', owner: user.name || user.email }
+        : { role: 'owner', members: membersOf(user).map(({ id, email, name }) => ({ id, email, name })), invites: (user.invites ?? []).map(({ id, email }) => ({ id, email })) },
       paid: isPaid(plan),
       trialEndsAt: !isPaying(user) && user.trialEndsAt > t ? user.trialEndsAt : null,
       proUntil: user.proUntil > t ? user.proUntil : null,
@@ -218,26 +252,26 @@ export async function createApp(cfg = config(), { db, wa, now = Date.now, stripe
       branding: branding(user),
       templates: user.templates ?? [],
       feeds: (user.feeds ?? []).map(({ id, url, targets, template, error }) => ({ id, url, targets, template, error: error ?? null })),
-      referral: { code: refCode(user), signups: referred.length, paid: referred.filter((u) => u.referralRewarded).length },
-      id: user.id,
-      email: user.email,
-      name: user.name,
+      referral: { code: refCode(self), signups: referred.length, paid: referred.filter((u) => u.referralRewarded).length },
+      id: self.id,
+      email: self.email,
+      name: self.name,
       timeZone: user.timeZone,
       footer: user.footer,
-      isAdmin: isAdmin(user),
-      createdAt: user.createdAt,
-      lastLoginAt: user.lastLoginAt ?? null,
-      prefs: prefsOf(user),
+      isAdmin: isAdmin(self),
+      createdAt: self.createdAt,
+      lastLoginAt: self.lastLoginAt ?? null,
+      prefs: prefsOf(self),
       stats: { pending: db.postsOf(user.id).length, sentTotal: user.sentTotal ?? 0 },
       plan,
       limits: PLANS[plan],
       usage: usage(user),
       subscription: user.subscription?.status ?? null,
-      canManageBilling: Boolean(user.stripeCustomerId),
+      canManageBilling: self === user && Boolean(user.stripeCustomerId),
       queue: (({ intervalMin, startHour, endHour, paused, error }) => ({ intervalMin, startHour, endHour, paused, error }))(user.queue),
-      targets: user.targets.map(({ id, name, kind, audience, color }) => (kind === 'status'
-        ? { id, name, kind, audience, color, audienceSummary: audienceSummary(audience) }
-        : { id, name, kind })),
+      targets: user.targets.map(({ id, name, kind, audience, color, numberId = '' }) => (kind === 'status'
+        ? { id, name, kind, numberId, audience, color, audienceSummary: audienceSummary(audience) }
+        : { id, name, kind, numberId })),
     };
   }
 
@@ -412,7 +446,9 @@ export async function createApp(cfg = config(), { db, wa, now = Date.now, stripe
     endAllSessions(db, user.id);
     delete db.data.users[user.id];
     await db.save();
-    await wa.remove(user.id).catch(() => {});
+    for (const m of membersOf(user)) delete m.teamOwnerId; // members go back to their own accounts
+    await db.save();
+    for (const key of connKeys(user)) await wa.remove(key).catch(() => {});
   }
 
   async function login(req, user) {
@@ -432,9 +468,12 @@ export async function createApp(cfg = config(), { db, wa, now = Date.now, stripe
       signupsOpen: cfg.signupsOpen,
       billingEnabled: cfg.billingEnabled,
       proPriceLabel: cfg.proPriceLabel,
-      plans: Object.fromEntries(Object.entries(PLANS).filter(([id]) => id !== 'business' || cfg.prices.business.month)),
+      plans: Object.fromEntries(Object.entries(PLANS).filter(([id]) => !cfg.prices[id] || id === 'pro' || cfg.prices[id].month)),
+      brandColor: cfg.brandColor,
+      supportEmail: cfg.supportEmail,
+      reviews: (db.data.meta.reviews ?? []).filter((r) => r.approved).slice(0, 6).map(({ name, text, rating }) => ({ name, text, rating })),
       priceLabels: cfg.priceLabels,
-      yearly: { pro: Boolean(cfg.prices.pro.year), business: Boolean(cfg.prices.business.year) },
+      yearly: Object.fromEntries(Object.entries(cfg.prices).map(([id, x]) => [id, Boolean(x.year)])),
       trialDays: cfg.billingEnabled ? cfg.trialDays : 0,
       freeBranding: cfg.billingEnabled && cfg.freeBranding,
       promoText: cfg.promoText,
@@ -448,7 +487,7 @@ export async function createApp(cfg = config(), { db, wa, now = Date.now, stripe
 
     'POST /api/signup': async (req) => {
       if (!cfg.signupsOpen) throw fail('Sign-ups are closed right now', 403);
-      const { email: rawEmail, password, name, timeZone, ref } = await readJson(req);
+      const { email: rawEmail, password, name, timeZone, ref, invite } = await readJson(req);
       const email = normalizeEmail(rawEmail);
       if (!validEmail(email)) throw fail('Enter a valid email');
       if (String(password ?? '').length < 8) throw fail('Password must be at least 8 characters');
@@ -458,6 +497,7 @@ export async function createApp(cfg = config(), { db, wa, now = Date.now, stripe
       const referrer = ref ? Object.values(db.data.users).find((u) => u.refCode === String(ref)) : null;
       if (referrer) user.referredBy = referrer.id;
       db.data.users[user.id] = user;
+      if (invite) try { joinTeam(user, invite); } catch {} // a stale invite shouldn't block signing up
       mail(email, `Welcome to ${cfg.appName}`, [
         `Hi${user.name ? ` ${user.name}` : ''}, your account is ready.`,
         'Three steps to your first scheduled post:\n1. Link your WhatsApp with a pairing code\n2. Add a group, channel or your Status\n3. Write a post and pick a time',
@@ -555,15 +595,16 @@ export async function createApp(cfg = config(), { db, wa, now = Date.now, stripe
 
   // Logged in.
   const authed = {
-    'GET /api/me': (req, user) => ({ user: userView(user) }),
+    'GET /api/me': (req, user) => ({ user: userView(wsOf(user)) }),
 
     'POST /api/me/settings': async (req, user) => {
       const { name, footer, timeZone, prefs } = await readJson(req);
       if (name !== undefined) user.name = String(name).trim().slice(0, 80);
-      if (footer !== undefined) user.footer = String(footer).slice(0, 500);
+      const ws = wsOf(user);
+      if (footer !== undefined) ws.footer = String(footer).slice(0, 500);
       if (timeZone !== undefined) {
         if (!isTimeZone(timeZone)) throw fail('Unknown time zone');
-        user.timeZone = timeZone;
+        ws.timeZone = timeZone;
       }
       if (prefs !== undefined) {
         const next = prefsOf(user);
@@ -580,7 +621,7 @@ export async function createApp(cfg = config(), { db, wa, now = Date.now, stripe
         user.prefs = next;
       }
       await db.save();
-      return { user: userView(user) };
+      return { user: userView(ws) };
     },
 
     'POST /api/me/email': async (req, user) => {
@@ -592,7 +633,7 @@ export async function createApp(cfg = config(), { db, wa, now = Date.now, stripe
       if (db.userByEmail(email)) throw fail('That email already has an account', 409);
       user.email = email;
       await db.save();
-      return { user: userView(user) };
+      return { user: userView(wsOf(user)) };
     },
 
     // The devices this account is logged in on.
@@ -652,39 +693,43 @@ export async function createApp(cfg = config(), { db, wa, now = Date.now, stripe
 
     // ----- WhatsApp -----
 
-    'GET /api/whatsapp': (req, user) => ({ ...wa.get(user.id).status(), dryRun: cfg.dryRun }),
+    'GET /api/whatsapp': (req, user) => ({ ...connFor(req, user).status(), dryRun: cfg.dryRun }),
 
     'POST /api/whatsapp/pair': async (req, user) => ({
-      pairingCode: await wa.get(user.id).requestPairingCode((await readJson(req)).phone),
+      pairingCode: await connFor(req, user).requestPairingCode((await readJson(req)).phone),
     }),
 
     'POST /api/whatsapp/unlink': async (req, user) => {
-      await wa.get(user.id).logout();
+      await connFor(req, user).logout();
       return { ok: true };
     },
 
     'GET /api/whatsapp/groups': async (req, user) => {
-      const groups = await wa.get(user.id).listGroups();
-      const have = new Set(user.targets.map((t) => t.jid));
+      const n = numberOf(user, new URL(req.url, 'http://x').searchParams.get('n'));
+      const groups = await wa.get(connKey(user, n)).listGroups();
+      const have = new Set(user.targets.filter((t) => (t.numberId || '') === n).map((t) => t.jid));
       return { groups: groups.map((g) => ({ ...g, added: have.has(g.jid) })) };
     },
 
     // ----- Targets (groups / channels to post to) -----
 
     'POST /api/targets': async (req, user) => {
-      const { ref, audience, color } = await readJson(req);
+      const { ref, audience, color, number } = await readJson(req);
+      const n = numberOf(user, number);
+      const conn = wa.get(connKey(user, n));
+      const label = n ? user.numbers.find((x) => x.id === n).label : '';
       if (!String(ref ?? '').trim()) throw fail('Paste a link or pick a group');
       const isStatus = String(ref).trim() === 'status';
       if (user.targets.length >= limitsFor(user).maxTargets) {
         throw fail(`Your plan allows ${limitsFor(user).maxTargets} groups/channels${cfg.billingEnabled ? ' — upgrade for more' : ''}`, 402);
       }
       const resolved = isStatus
-        ? { jid: STATUS_JID, name: 'My Status', kind: 'status', audience: parseAudience(audience), color: parseColor(color) }
-        : cfg.dryRun && wa.get(user.id).status().state !== 'connected'
+        ? { jid: STATUS_JID, name: n ? `Status (${label})` : 'My Status', kind: 'status', audience: parseAudience(audience), color: parseColor(color) }
+        : cfg.dryRun && conn.status().state !== 'connected'
         ? { jid: String(ref).trim(), name: String(ref).trim().slice(0, 60), kind: 'test' }
-        : await wa.get(user.id).resolve(ref);
-      if (user.targets.some((t) => t.jid === resolved.jid)) throw fail(`${resolved.name} is already added`, 409);
-      const target = { id: randomUUID(), ...resolved, addedAt: now() };
+        : await conn.resolve(ref);
+      if (user.targets.some((t) => t.jid === resolved.jid && (t.numberId || '') === n)) throw fail(`${resolved.name} is already added`, 409);
+      const target = { id: randomUUID(), ...resolved, numberId: n, addedAt: now() };
       user.targets.push(target);
       await db.save();
       return { user: userView(user) };
@@ -740,6 +785,20 @@ export async function createApp(cfg = config(), { db, wa, now = Date.now, stripe
       return { ok: true, added: added.length, ...postsView(user) };
     },
 
+    // ----- Extra WhatsApp numbers (Business and Agency plans) -----
+
+    'POST /api/numbers': async (req, user) => {
+      const max = limitsFor(user).maxNumbers;
+      user.numbers ??= [];
+      if (user.numbers.length + 1 >= max) {
+        throw fail(max > 1 ? `Your plan allows ${max} WhatsApp numbers` : 'More than one WhatsApp number is a Business feature — upgrade to add another', 402);
+      }
+      const label = String((await readJson(req)).label ?? '').trim().slice(0, 40) || `Number ${user.numbers.length + 2}`;
+      user.numbers.push({ id: randomBytes(6).toString('hex'), label, addedAt: now() });
+      await db.save();
+      return { user: userView(user) };
+    },
+
     // ----- Templates -----
 
     'POST /api/templates': async (req, user) => {
@@ -761,11 +820,20 @@ export async function createApp(cfg = config(), { db, wa, now = Date.now, stripe
       const hours = new Array(24).fill(0);
       for (const [, l] of mine) l.hours.forEach((n, h) => { hours[h] += n; });
       const total = hours.reduce((a, b) => a + b, 0);
+      // Until there are enough clicks, fall back to when people write in the
+      // account's groups (counted per hour by the WhatsApp connection).
+      const shift = (Number(new Date(now()).toLocaleString('en-US', { hour: 'numeric', hourCycle: 'h23', timeZone: user.timeZone })) - new Date(now()).getUTCHours() + 24) % 24;
+      const active = new Array(24).fill(0);
+      for (const key of connKeys(user)) (wa.get(key).activity?.() ?? []).forEach((n, h) => { active[(h + shift) % 24] += n; });
+      const seen = active.reduce((a, b) => a + b, 0);
+      const top = (list) => list.map((n, h) => ({ h, n })).sort((a, b) => b.n - a.n).slice(0, 3).filter((x) => x.n > 0).map((x) => x.h);
+      const source = total >= 10 ? 'clicks' : seen >= 30 ? 'activity' : null;
       return {
         total,
         hours,
-        // The hours (in the account's time zone) that got the most clicks.
-        bestHours: total >= 10 ? hours.map((n, h) => ({ h, n })).sort((a, b) => b.n - a.n).slice(0, 3).filter((x) => x.n > 0).map((x) => x.h) : [],
+        source,
+        // The hours (in the account's time zone) to aim for.
+        bestHours: source === 'clicks' ? top(hours) : source === 'activity' ? top(active) : [],
         links: mine.sort((a, b) => b[1].createdAt - a[1].createdAt).slice(0, 30)
           .map(([code, l]) => ({ code, url: l.url, clicks: l.clicks, label: l.label, createdAt: l.createdAt })),
       };
@@ -832,7 +900,8 @@ export async function createApp(cfg = config(), { db, wa, now = Date.now, stripe
     'POST /api/billing/checkout': async (req, user) => {
       if (!cfg.billingEnabled) throw fail('Billing is not switched on', 404);
       const body = await readJson(req);
-      const plan = body.plan === 'business' ? 'business' : 'pro';
+      const plan = cfg.prices[body.plan] ? body.plan : 'pro';
+      if (user.teamOwnerId && db.data.users[user.teamOwnerId]) throw fail('Only the workspace owner manages billing', 403);
       const interval = body.interval === 'year' ? 'year' : 'month';
       const priceId = cfg.prices[plan][interval];
       if (!stripe || !priceId) throw fail('Payments are not set up yet — try again later', 503);
@@ -842,6 +911,7 @@ export async function createApp(cfg = config(), { db, wa, now = Date.now, stripe
     },
 
     'POST /api/billing/portal': async (req, user) => {
+      if (user.teamOwnerId && db.data.users[user.teamOwnerId]) throw fail('Only the workspace owner manages billing', 403);
       if (!stripe || !user.stripeCustomerId) throw fail('No billing account yet', 404);
       const session = await stripe.portal({ user, baseUrl: baseUrl(req) });
       return { url: session.url };
@@ -880,7 +950,7 @@ export async function createApp(cfg = config(), { db, wa, now = Date.now, stripe
       // Monthly recurring revenue, estimated from the price labels.
       const amount = (label) => Number(/[\d.]+/.exec(String(label).replace(/,/g, ''))?.[0]) || 0;
       const mrr = payers.reduce((sum, u) => {
-        const labels = cfg.priceLabels[u.subscription.plan === 'business' ? 'business' : 'pro'];
+        const labels = cfg.priceLabels[u.subscription.plan] ?? cfg.priceLabels.pro;
         return sum + (u.subscription.interval === 'year' ? amount(labels.year) / 12 : amount(labels.month));
       }, 0);
       const weeks = Array.from({ length: 8 }, (_, i) => {
@@ -908,6 +978,91 @@ export async function createApp(cfg = config(), { db, wa, now = Date.now, stripe
         },
       };
     },
+  };
+
+  // ----- Team (the owner invites people into their workspace) -----
+
+  function joinTeam(user, token) {
+    const hash = sha256(token);
+    const owner = Object.values(db.data.users).find((u) => (u.invites ?? []).some((i) => i.hash === hash));
+    if (!owner) throw fail('This invite is no longer valid — ask for a new one', 400);
+    if (owner.id === user.id) throw fail('That is your own invite link');
+    if (user.teamOwnerId && db.data.users[user.teamOwnerId]) throw fail('You are already in a team — leave it first', 409);
+    if (membersOf(user).length) throw fail('You have team members of your own — remove them first', 409);
+    if (membersOf(owner).length >= limitsFor(owner).maxMembers) throw fail('That team is full', 409);
+    owner.invites = owner.invites.filter((i) => i.hash !== hash);
+    user.teamOwnerId = owner.id;
+    return owner;
+  }
+
+  authed['POST /api/team/invite'] = async (req, user) => {
+    if (wsOf(user) !== user) throw fail('Only the workspace owner can invite people', 403);
+    const max = limitsFor(user).maxMembers;
+    user.invites ??= [];
+    if (membersOf(user).length + user.invites.length >= max) {
+      throw fail(max ? `Your plan allows ${max} team members` : 'Team members are a Business feature — upgrade to invite people', 402);
+    }
+    const email = normalizeEmail((await readJson(req)).email);
+    if (!validEmail(email)) throw fail('Enter a valid email');
+    if (email === user.email) throw fail('That is your own email');
+    if (membersOf(user).some((m) => m.email === email)) throw fail('They are already in your team', 409);
+    user.invites = user.invites.filter((i) => i.email !== email);
+    const token = randomBytes(24).toString('base64url');
+    user.invites.push({ id: randomBytes(6).toString('hex'), email, hash: sha256(token), createdAt: now() });
+    await db.save();
+    const link = `${baseUrl(req)}/?invite=${token}`;
+    const emailed = await mail(email, `${user.name || user.email} invited you to ${cfg.appName}`, [
+      `You’ve been invited to help schedule WhatsApp posts on ${cfg.appName}.`,
+      `Accept the invite:\n${link}`,
+    ]).catch(() => false);
+    return { user: userView(user), link, emailed: Boolean(emailed) };
+  };
+
+  authed['POST /api/team/join'] = async (req, user) => {
+    joinTeam(user, (await readJson(req)).token);
+    await db.save();
+    return { user: userView(wsOf(user)) };
+  };
+
+  authed['POST /api/team/leave'] = async (req, user) => {
+    delete user.teamOwnerId;
+    await db.save();
+    return { user: userView(user) };
+  };
+
+  // ----- Reviews (shown on the landing page once an admin approves) -----
+
+  authed['POST /api/reviews'] = async (req, user) => {
+    const { text, rating, name } = await readJson(req);
+    const clean = String(text ?? '').trim();
+    if (clean.length < 10) throw fail('Write at least a sentence');
+    if (clean.length > 400) throw fail('Keep it under 400 characters');
+    const stars = Math.round(Number(rating));
+    if (!(stars >= 1 && stars <= 5)) throw fail('Pick a rating from 1 to 5');
+    const reviews = (db.data.meta.reviews ??= []);
+    const mine = reviews.findIndex((r) => r.userId === user.id);
+    const review = { id: randomBytes(6).toString('hex'), userId: user.id, email: user.email, name: String(name ?? '').trim().slice(0, 60) || user.name || 'A customer', text: clean, rating: stars, approved: false, createdAt: now() };
+    if (mine >= 0) reviews[mine] = review; else reviews.push(review);
+    await db.save();
+    return { ok: true };
+  };
+
+  authed['GET /api/admin/site'] = (req, user) => {
+    requireAdmin(user);
+    return { site: Object.fromEntries(SITE_KEYS.map((k) => [k, db.data.meta.site?.[k] ?? ''])), defaults: siteDefaults, reviews: db.data.meta.reviews ?? [] };
+  };
+
+  authed['POST /api/admin/site'] = async (req, user) => {
+    requireAdmin(user);
+    const body = await readJson(req);
+    const site = { ...(db.data.meta.site ?? {}) };
+    for (const k of SITE_KEYS) if (body[k] !== undefined) site[k] = String(body[k]).trim().slice(0, 200);
+    if (site.brandColor && !/^#[0-9a-f]{6}$/i.test(site.brandColor)) throw fail('The colour must look like #0b7a5c');
+    if (site.demoVideoUrl && !/^https:\/\//.test(site.demoVideoUrl)) throw fail('The video link must start with https://');
+    db.data.meta.site = site;
+    applySite();
+    await db.save();
+    return { ok: true };
   };
 
   // A full copy of the data file, for safe keeping. Admins only.
@@ -1094,6 +1249,59 @@ export async function createApp(cfg = config(), { db, wa, now = Date.now, stripe
       return { ok: true };
     }
 
+    m = /^\/api\/numbers\/([\w-]+)$/.exec(path);
+    if (m && (req.method === 'POST' || req.method === 'DELETE')) {
+      const number = (user.numbers ?? []).find((n) => n.id === m[1]);
+      if (!number && m[1] !== 'main') throw fail('Not found', 404);
+      if (req.method === 'POST') { // rename
+        const label = String((await readJson(req)).label ?? '').trim().slice(0, 40);
+        if (!label) throw fail('Give the number a name');
+        if (number) number.label = label; else user.numberLabel = label;
+        await db.save();
+        return { user: userView(user) };
+      }
+      if (!number) throw fail('The main number can’t be removed — unlink it instead');
+      // Its places go with it, and posts left with nowhere to go are deleted.
+      const gone = new Set(user.targets.filter((t) => t.numberId === number.id).map((t) => t.id));
+      user.targets = user.targets.filter((t) => !gone.has(t.id));
+      for (const p of db.postsOf(user.id)) {
+        p.targets = p.targets.filter((id) => !gone.has(id));
+        if (!p.targets.length) {
+          delete db.data.posts[p.id];
+          if (p.imageType) await db.removeImage(p.id);
+        }
+      }
+      user.numbers = user.numbers.filter((n) => n.id !== number.id);
+      await db.save();
+      await wa.remove(connKey(user, number.id)).catch(() => {});
+      return { user: userView(user), ...postsView(user) };
+    }
+
+    m = /^\/api\/team\/(members|invites)\/([\w-]+)$/.exec(path);
+    if (m && req.method === 'DELETE') {
+      if (m[1] === 'invites') {
+        user.invites = (user.invites ?? []).filter((i) => i.id !== m[2]);
+      } else {
+        const member = membersOf(user).find((u) => u.id === m[2]);
+        if (!member) throw fail('Not found', 404);
+        delete member.teamOwnerId;
+      }
+      await db.save();
+      return { user: userView(user) };
+    }
+
+    m = /^\/api\/admin\/reviews\/([\w-]+)$/.exec(path);
+    if (m && (req.method === 'POST' || req.method === 'DELETE')) {
+      requireAdmin(user);
+      const reviews = db.data.meta.reviews ?? [];
+      const review = reviews.find((r) => r.id === m[1]);
+      if (!review) throw fail('Not found', 404);
+      if (req.method === 'DELETE') db.data.meta.reviews = reviews.filter((r) => r !== review);
+      else review.approved = Boolean((await readJson(req)).approved);
+      await db.save();
+      return { ok: true };
+    }
+
     m = /^\/api\/(templates|feeds)\/([\w-]+)$/.exec(path);
     if (m && req.method === 'DELETE') {
       const list = user[m[1]] ?? [];
@@ -1147,7 +1355,11 @@ export async function createApp(cfg = config(), { db, wa, now = Date.now, stripe
           const user = found ? db.data.users[found.session.userId] : null;
           if (!user || user.disabled) return send(res, 401, { error: 'Please log in' });
           found.session.lastSeenAt = now(); // kept in memory; written with the next save
-          out = authed[key] ? await authed[key](req, user) : await dynamic(req, user, path);
+          // Posting routes act on the workspace (the owner's account for a
+          // team member); everything else acts on the person logged in.
+          const shared = /^\/api\/(whatsapp|targets|posts|queue|templates|feeds|links|ai|numbers)(\/|$)/.test(path);
+          const who = shared ? wsOf(user) : user;
+          out = await actor.run(user, () => (authed[key] ? authed[key](req, who) : dynamic(req, who, path)));
         }
         if (out === undefined) return send(res, 404, { error: 'Not found' });
         if (out?.raw) return send(res, 200, out.raw, { 'content-type': out.type, 'cache-control': 'private, max-age=3600' });
@@ -1212,6 +1424,6 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     console.log(`Email ${cfg.smtp.host ? 'on' : 'off (set SMTP_HOST for password resets and reminders)'} · AI writer ${cfg.anthropicKey ? 'on' : 'off'}`);
     console.log(`${Object.keys(app.db.data.users).length} accounts · ${Object.keys(app.db.data.posts).length} posts waiting`);
   });
-  const linked = await app.wa.startAll(Object.keys(app.db.data.users));
+  const linked = await app.wa.startAll(Object.values(app.db.data.users).flatMap((u) => [u.id, ...(u.numbers ?? []).map((n) => `${u.id}_${n.id}`)]));
   if (linked) console.log(`Reconnecting ${linked} linked WhatsApp account(s)…`);
 }

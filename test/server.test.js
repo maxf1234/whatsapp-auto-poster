@@ -703,3 +703,106 @@ test('public pages: terms, privacy, landing pages, robots and sitemap', async (t
   assert.match(await (await fetch(`${env.base}/robots.txt`)).text(), /Sitemap: https:\/\/app\.test\/sitemap\.xml/);
   assert.match(await (await fetch(`${env.base}/sitemap.xml`)).text(), /https:\/\/app\.test\/for\/real-estate/);
 });
+
+test('extra WhatsApp numbers: Business only, each with its own places and connection', async (t) => {
+  const env = await setup(t, { ...BILLING, TRIAL_DAYS: '0', STRIPE_PRICE_ID_BUSINESS: 'price_biz' });
+  const admin = await signedUp(env.client, 'admin@example.com');
+  const c = await signedUp(env.client, 'u@example.com');
+  const me = (await c('me')).body.user;
+  assert.deepEqual(me.numbers, [{ id: '', label: 'Main number' }]);
+  assert.equal((await c('numbers', 'POST', { label: 'Client A' })).status, 402);
+  await admin(`admin/users/${me.id}`, 'POST', { planOverride: 'business' });
+  const numbers = (await c('numbers', 'POST', { label: 'Client A' })).body.user.numbers;
+  const n = numbers[1].id;
+  assert.equal(numbers[1].label, 'Client A');
+  assert.equal((await c(`whatsapp?n=${n}`)).body.state, 'connected');
+  assert.equal((await c('whatsapp?n=nope')).status, 404);
+
+  await c('targets', 'POST', { ref: '111@g.us' });
+  const { user } = (await c('targets', 'POST', { ref: '111@g.us', number: n })).body;
+  assert.equal(user.targets.length, 2, 'the same group can be added on each number');
+  assert.equal(user.targets[1].numberId, n);
+  assert.equal((await c(`whatsapp/groups?n=${n}`)).body.groups.find((g) => g.jid === '111@g.us').added, true);
+  const r = await c('posts', 'POST', { text: 'hi', targets: user.targets.map((x) => x.id), when: { type: 'now' } });
+  assert.equal(r.body.sent, true);
+  assert.deepEqual(env.wa.sent.slice(-2).map((s) => s.userId), [me.id, `${me.id}_${n}`]);
+
+  await c('posts', 'POST', { text: 'later', targets: [user.targets[1].id], when: { type: 'queue' } });
+  assert.equal((await c(`numbers/${n}`, 'POST', { label: 'Client B' })).body.user.numbers[1].label, 'Client B');
+  const gone = (await c(`numbers/${n}`, 'DELETE')).body;
+  assert.equal(gone.user.numbers.length, 1);
+  assert.equal(gone.user.targets.length, 1);
+  assert.equal(gone.queue.length, 0, 'posts that only went to that number are removed');
+});
+
+test('team: invite, join, shared workspace, personal identity, remove', async (t) => {
+  const env = await setup(t, { ...BILLING, TRIAL_DAYS: '0', STRIPE_PRICE_ID_AGENCY: 'price_ag' });
+  const owner = await signedUp(env.client, 'owner@example.com');
+  const ownerId = (await owner('me')).body.user.id;
+  assert.equal((await owner('team/invite', 'POST', { email: 'helper@example.com' })).status, 402);
+  await owner(`admin/users/${ownerId}`, 'POST', { planOverride: 'agency' });
+  assert.equal((await owner('me')).body.user.limits.maxMembers, 25);
+  const inv = (await owner('team/invite', 'POST', { email: 'Helper@example.com' })).body;
+  assert.equal(inv.emailed, true);
+  const token = /\?invite=([\w-]+)/.exec(inv.link)[1];
+  assert.ok(env.mails.at(-1).text.includes(token));
+  assert.equal(inv.user.team.invites.length, 1);
+  const { user: ws } = (await owner('targets', 'POST', { ref: '111@g.us' })).body;
+  await owner('me/settings', 'POST', { footer: 'Team footer' });
+
+  const m = env.client();
+  await m('signup', 'POST', { email: 'helper@example.com', password: 'hunter2hunter2', name: 'Helper', invite: token });
+  let me = (await m('me')).body.user;
+  assert.equal(me.email, 'helper@example.com');
+  assert.equal(me.isAdmin, false);
+  assert.deepEqual(me.team, { role: 'member', owner: 'Max' });
+  assert.equal(me.plan, 'agency');
+  assert.equal(me.targets.length, 1, 'sees the workspace’s places');
+  assert.equal(me.footer, 'Team footer');
+  assert.equal(me.canManageBilling, false);
+
+  const sent = await m('posts', 'POST', { text: 'from helper', targets: [ws.targets[0].id], when: { type: 'now' } });
+  assert.equal(sent.body.sent, true);
+  assert.equal(env.wa.sent.at(-1).userId, ownerId, 'sent from the owner’s WhatsApp');
+  assert.equal((await owner('posts')).body.history[0].text, 'from helper');
+  assert.equal((await m('billing/checkout', 'POST', { plan: 'pro' })).status, 403);
+  assert.equal((await m('admin/users')).status, 403);
+  assert.equal((await m('team/invite', 'POST', { email: 'x@example.com' })).status, 403);
+  assert.equal((await m('me/settings', 'POST', { name: 'Helper Two' })).body.user.name, 'Helper Two');
+  assert.equal((await owner('me')).body.user.name, 'Max', 'a member’s name change stays theirs');
+
+  const team = (await owner('me')).body.user.team;
+  assert.equal(team.members[0].email, 'helper@example.com');
+  assert.equal(team.invites.length, 0);
+  await owner(`team/members/${team.members[0].id}`, 'DELETE');
+  me = (await m('me')).body.user;
+  assert.equal(me.team.role, 'owner');
+  assert.equal(me.targets.length, 0, 'back in their own, empty account');
+  assert.equal(me.plan, 'free');
+});
+
+test('site settings and reviews: admin edits the site, approves reviews for the landing page', async (t) => {
+  const env = await setup(t, { APP_NAME: 'Env Name' });
+  const admin = await signedUp(env.client, 'admin@example.com');
+  const c = await signedUp(env.client, 'u@example.com');
+  assert.equal((await c('admin/site')).status, 403);
+  assert.equal((await admin('admin/site', 'POST', { brandColor: 'red' })).status, 400);
+  await admin('admin/site', 'POST', { appName: 'PostPilot', brandColor: '#1d4ed8', promoText: 'Hello' });
+  let cfg = (await c('config')).body;
+  assert.equal(cfg.appName, 'PostPilot');
+  assert.equal(cfg.brandColor, '#1d4ed8');
+  assert.equal(cfg.promoText, 'Hello');
+  assert.match(await (await fetch(`${env.base}/terms`)).text(), /PostPilot/);
+  await admin('admin/site', 'POST', { appName: '' });
+  assert.equal((await c('config')).body.appName, 'Env Name', 'empty falls back to the variable');
+
+  assert.equal((await c('reviews', 'POST', { text: 'short', rating: 5 })).status, 400);
+  await c('reviews', 'POST', { text: 'Saves me an hour every single day.', rating: 5, name: 'Dana' });
+  assert.equal((await c('config')).body.reviews.length, 0, 'not public until approved');
+  const [review] = (await admin('admin/site')).body.reviews;
+  await admin(`admin/reviews/${review.id}`, 'POST', { approved: true });
+  cfg = (await c('config')).body;
+  assert.deepEqual(cfg.reviews, [{ name: 'Dana', text: 'Saves me an hour every single day.', rating: 5 }]);
+  await admin(`admin/reviews/${review.id}`, 'DELETE');
+  assert.equal((await c('config')).body.reviews.length, 0);
+});
