@@ -29,6 +29,11 @@ function setMsg(id, text, kind = '') {
   $(id).textContent = text;
   $(id).className = `msg ${kind}`;
 }
+// An error from the server; plan-limit errors get a link to the plans.
+function showErr(id, err) {
+  setMsg(id, err.message, 'err');
+  if (err.status === 402 && cfg.billingEnabled) $(id).insertAdjacentHTML('beforeend', ' <a href="#/account/plan">See plans →</a>');
+}
 
 const icon = (name) => `<svg class="i"><use href="#i-${name}"/></svg>`;
 const escapeHtml = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -36,17 +41,42 @@ const escapeHtml = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&a
 // ---------- Auth ----------
 
 let signup = false;
-function setAuthTab(isSignup) {
-  signup = isSignup;
-  $('tabLogin').setAttribute('aria-pressed', String(!isSignup));
-  $('tabSignup').setAttribute('aria-pressed', String(isSignup));
-  $('nameWrap').hidden = !isSignup;
-  $('authBtn').textContent = isSignup ? 'Create account' : 'Log in';
-  $('aPw').autocomplete = isSignup ? 'new-password' : 'current-password';
-  $('authHeading').textContent = isSignup ? 'Create your account' : 'Welcome back';
-  $('authSub').textContent = isSignup ? 'Free to start. No card needed.' : 'Log in to your account.';
+let authMode = 'login'; // login | signup | forgot | reset
+let resetToken = null;
+function setAuthMode(mode) {
+  authMode = mode;
+  signup = mode === 'signup';
+  const tabs = mode === 'login' || mode === 'signup';
+  $('tabLogin').parentElement.hidden = !tabs;
+  $('tabLogin').setAttribute('aria-pressed', String(mode === 'login'));
+  $('tabSignup').setAttribute('aria-pressed', String(signup));
+  $('nameWrap').hidden = !signup;
+  $('emailWrap').hidden = mode === 'reset';
+  $('aEmail').disabled = mode === 'reset';
+  $('pwWrap').hidden = mode === 'forgot';
+  $('aPw').disabled = mode === 'forgot';
+  $('aPwLabel').textContent = mode === 'reset' ? 'New password' : 'Password';
+  $('aPw').autocomplete = mode === 'login' ? 'current-password' : 'new-password';
+  $('forgotLink').hidden = mode !== 'login' || !cfg.mailEnabled;
+  $('backToLogin').hidden = tabs;
+  $('termsNote').hidden = !signup;
+  $('authBtn').textContent = { login: 'Log in', signup: 'Create account', forgot: 'Email me a reset link', reset: 'Save new password' }[mode];
+  $('authHeading').textContent = { login: 'Welcome back', signup: 'Create your account', forgot: 'Reset your password', reset: 'Choose a new password' }[mode];
+  $('authSub').textContent = {
+    login: 'Log in to your account.',
+    signup: cfg.trialDays ? `Every Pro feature free for ${cfg.trialDays} days. No card needed.` : 'Free to start. No card needed.',
+    forgot: 'Enter your email and we’ll send you a link.',
+    reset: 'At least 8 characters.',
+  }[mode];
   setMsg('authMsg', '');
 }
+const setAuthTab = (isSignup) => setAuthMode(isSignup ? 'signup' : 'login');
+$('forgotLink').onclick = (e) => { e.preventDefault(); setAuthMode('forgot'); };
+$('backToLogin').onclick = (e) => { e.preventDefault(); history.replaceState(null, '', location.pathname); setAuthMode('login'); };
+
+// A referral link (?ref=code) is remembered until the visitor signs up.
+const refParam = new URLSearchParams(location.search).get('ref');
+if (refParam) store.set('ref', refParam);
 
 // Landing-page buttons jump to the form on the right tab.
 function goAuth(isSignup) {
@@ -59,17 +89,28 @@ $('navLogin').onclick = () => goAuth(false);
 $('navSignup').onclick = () => goAuth(true);
 $('finalSignup').onclick = () => goAuth(true);
 
-const planFeatures = (p) => `<ul>
+const planFeatures = (p, paid = p.recurring) => `<ul>
     <li>${p.postsPerMonth.toLocaleString()} posts a month</li>
     <li>${p.maxPending.toLocaleString()} waiting at once</li>
     <li>${p.maxTargets} groups, channels or Status</li>
-    <li class="${p.recurring ? '' : 'no'}">${p.recurring ? 'Repeating posts (daily / weekly)' : 'No repeating posts'}</li>
+    <li class="${p.recurring ? '' : 'no'}">${p.recurring ? 'Repeating posts (daily to monthly)' : 'No repeating posts'}</li>
+    <li class="${paid ? '' : 'no'}">Link click tracking${cfg.aiEnabled ? ' and AI writer' : ''}</li>
+    <li class="${paid ? '' : 'no'}">Post from an RSS feed</li>
+    ${cfg.freeBranding ? `<li class="${paid ? '' : 'no'}">${paid ? 'No' : 'Adds a'} “Sent with ${escapeHtml(cfg.appName || '')}” line</li>` : ''}
   </ul>`;
 
 function drawLanding() {
   const name = cfg.appName || 'Auto Poster';
   $('authTitle').textContent = $('footTitle').textContent = name;
   const plans = cfg.plans || {};
+  $('promo').hidden = !cfg.promoText;
+  $('promo').textContent = cfg.promoText || '';
+  if (cfg.demoVideoUrl) {
+    $('demo').hidden = false;
+    $('demoFrame').innerHTML = /\.(mp4|webm)(\?|$)/.test(cfg.demoVideoUrl)
+      ? `<video controls preload="metadata" src="${escapeHtml(cfg.demoVideoUrl)}"></video>`
+      : `<iframe src="${escapeHtml(cfg.demoVideoUrl)}" title="Demo video" allow="fullscreen; picture-in-picture" allowfullscreen loading="lazy"></iframe>`;
+  }
   if (!cfg.billingEnabled || !plans.free) {
     $('pricingSub').textContent = `Everything is free while ${name} is in beta.`;
     $('landingPlans').innerHTML = plans.pro ? `<div class="plan featured"><h3>Beta <span class="badge pro">Everything unlocked</span></h3>
@@ -80,8 +121,12 @@ function drawLanding() {
         <div class="price">$0 <small>forever</small></div>${planFeatures(plans.free)}
         <button class="btn ghost" type="button" data-go>Start free</button></div>
       <div class="plan featured"><h3>${escapeHtml(plans.pro.label)} <span class="badge pro">Most popular</span></h3>
-        <div class="price">${escapeHtml(cfg.proPriceLabel || '')}</div>${planFeatures(plans.pro)}
-        <button class="btn pro" type="button" data-go>Get ${escapeHtml(plans.pro.label)}</button></div>`;
+        <div class="price">${escapeHtml(cfg.priceLabels?.pro.month || cfg.proPriceLabel || '')}</div>${cfg.yearly?.pro ? `<div class="muted">or ${escapeHtml(cfg.priceLabels.pro.year)}</div>` : ''}${planFeatures(plans.pro, true)}
+        <button class="btn pro" type="button" data-go>${cfg.trialDays ? `Try free for ${cfg.trialDays} days` : `Get ${escapeHtml(plans.pro.label)}`}</button></div>` +
+      (plans.business ? `<div class="plan"><h3>${escapeHtml(plans.business.label)}</h3>
+        <div class="price">${escapeHtml(cfg.priceLabels.business.month)}</div>${cfg.yearly?.business ? `<div class="muted">or ${escapeHtml(cfg.priceLabels.business.year)}</div>` : ''}${planFeatures(plans.business, true)}
+        <button class="btn ghost" type="button" data-go>Start free</button></div>` : '');
+    if (plans.business) $('landingPlans').style.maxWidth = '1072px';
   }
   for (const b of $('landingPlans').querySelectorAll('[data-go]')) b.onclick = () => goAuth(true);
 }
@@ -95,11 +140,21 @@ $('authForm').onsubmit = async (e) => {
   e.preventDefault();
   $('authBtn').disabled = true;
   try {
-    const body = { email: $('aEmail').value, password: $('aPw').value };
-    if (signup) Object.assign(body, { name: $('aName').value, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone });
-    const { user } = await api(signup ? 'signup' : 'login', 'POST', body);
+    if (authMode === 'forgot') {
+      await api('forgot', 'POST', { email: $('aEmail').value });
+      return setMsg('authMsg', 'If that email has an account, a reset link is on its way.', 'ok');
+    }
+    let data;
+    if (authMode === 'reset') {
+      data = await api('reset', 'POST', { token: resetToken, password: $('aPw').value });
+      history.replaceState(null, '', `${location.pathname}#/`);
+    } else {
+      const body = { email: $('aEmail').value, password: $('aPw').value };
+      if (signup) Object.assign(body, { name: $('aName').value, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, ref: store.get('ref') || undefined });
+      data = await api(signup ? 'signup' : 'login', 'POST', body);
+    }
     $('aPw').value = '';
-    me = user;
+    me = data.user;
     showApp();
   } catch (err) {
     setMsg('authMsg', err.message, 'err');
@@ -124,7 +179,7 @@ function showAuth() {
 
 // ---------- Views ----------
 
-const SECTIONS = ['overview', 'profile', 'posting', 'appearance', 'plan', 'security', 'data'];
+const SECTIONS = ['overview', 'profile', 'posting', 'appearance', 'plan', 'refer', 'security', 'data'];
 let section = 'overview';
 
 function route() {
@@ -157,6 +212,8 @@ function showApp() {
   route();
   loadPosts();
   loadWhatsApp();
+  loadLinks();
+  clearImage();
   startPolling();
   const billing = new URLSearchParams(location.search).get('billing');
   if (billing) {
@@ -196,7 +253,16 @@ function drawMe() {
   $('adminLink').hidden = !me.isAdmin;
   $('planBadge').hidden = !cfg.billingEnabled;
   $('planBadge').textContent = me.limits.label;
-  $('planBadge').className = `badge ${me.plan === 'pro' ? 'pro' : ''}`;
+  $('planBadge').className = `badge ${me.paid ? 'pro' : ''}`;
+  // Trial countdown, or a heads-up when this month's posts are nearly used.
+  const left = me.trialEndsAt ? Math.max(1, Math.ceil((me.trialEndsAt - Date.now()) / 864e5)) : 0;
+  const used = me.usage.created / me.limits.postsPerMonth;
+  $('trialBar').hidden = !cfg.billingEnabled || !(left || (used >= 0.8 && me.plan !== 'business'));
+  $('trialText').textContent = left ? `Your free Pro trial ends in ${left} day${left === 1 ? '' : 's'}.`
+    : `You’ve used ${me.usage.created} of ${me.limits.postsPerMonth.toLocaleString()} posts this month.`;
+  drawTemplates();
+  $('aiBtn').hidden = !cfg.aiEnabled;
+  $('trackPro').hidden = me.paid;
   $('avatar').textContent = initials(me);
   $('avatar').title = me.email;
   applyPrefs(me.prefs);
@@ -236,7 +302,8 @@ function waFormat(text) {
 
 function caption() {
   const text = $('text').value.trim();
-  return me?.footer ? (text ? `${text}\n\n${me.footer}` : me.footer) : text;
+  if ($('pollOn').checked) return text;
+  return [text, me?.footer, me?.branding].filter(Boolean).join('\n\n');
 }
 
 function renderPreview() {
@@ -246,16 +313,30 @@ function renderPreview() {
   const statusOnly = !imageData && picked.length > 0 && picked.every((t) => t.kind === 'status');
   $('preview').classList.toggle('status-bubble', statusOnly);
   $('preview').style.setProperty('--status-bg', (editingStatus && statusColor) || picked[0]?.color || '#128c7e');
+  const pollOpts = $('pollOn').checked ? $('pollOpts').value.split('\n').map((x) => x.trim()).filter(Boolean) : [];
+  $('trackWrap').hidden = !/https?:\/\//.test($('text').value);
   $('preview').innerHTML =
-    (imageData ? `<img src="${imageData}" alt="Post image" />` : '') +
+    (imageData?.startsWith('data:image/') ? `<img src="${imageData}" alt="Post image" />` : imageData ? `<div class="cap"><span class="file-chip">${icon('image')}${escapeHtml(fileName || 'Attachment')}</span></div>` : '') +
     `<div class="cap">${waFormat(cap) || '<span style="opacity:.5">Your post…</span>'}</div>` +
+    (pollOpts.length ? `<div class="cap">${pollOpts.map((o) => `◯ ${escapeHtml(o)}`).join('<br>')}</div>` : '') +
     `<div class="time">${time}</div>`;
   $('count').textContent = `${cap.length} characters`;
 }
 
 // Image: pick / drop / paste, resized client-side (max 1600px JPEG).
+let fileName = null;
 async function loadImage(file) {
-  if (!file || !file.type.startsWith('image/')) return;
+  if (!file) return;
+  if (file.type === 'video/mp4' || file.type === 'application/pdf') {
+    if (file.size > 16 * 1024 * 1024) return setMsg('msg', 'That file is too big (max 16 MB)', 'err');
+    imageData = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(file); });
+    fileName = file.name;
+    $('dropInner').innerHTML = `<div><span class="file-chip">${icon('image')}${escapeHtml(file.name)}</span><br><small>Tap to change · <a href="#" id="rmImg">Remove</a></small></div>`;
+    $('rmImg').onclick = (e) => { e.preventDefault(); e.stopPropagation(); clearImage(); };
+    return renderPreview();
+  }
+  if (!file.type.startsWith('image/')) return;
+  fileName = null;
   const bitmap = await createImageBitmap(file);
   const scale = Math.min(1, 1600 / Math.max(bitmap.width, bitmap.height));
   const canvas = document.createElement('canvas');
@@ -272,7 +353,8 @@ async function loadImage(file) {
 function clearImage() {
   imageData = null;
   $('file').value = '';
-  $('dropInner').innerHTML = `<span class="drop-ic">${icon('image')}</span><span><b>Add an image</b> · tap, drop or paste<br><small>Optional · JPEG, PNG or WebP</small></span>`;
+  fileName = null;
+  $('dropInner').innerHTML = `<span class="drop-ic">${icon('image')}</span><span><b>Add an image, video or PDF</b> · tap, drop or paste<br><small>Optional · JPEG, PNG, WebP, MP4 or PDF, up to 16 MB</small></span>`;
   renderPreview();
 }
 
@@ -412,7 +494,7 @@ async function addTarget(ref) {
     setMsg('targetMsg', `Added ${added?.name ?? ''}`, 'ok');
     $('targetRef').value = '';
     loadGroups();
-  } catch (err) { setMsg('targetMsg', err.message, 'err'); }
+  } catch (err) { showErr('targetMsg', err); }
 }
 $('addTarget').onclick = () => addTarget($('targetRef').value);
 $('addGroup').onclick = () => $('groupSelect').value && addTarget($('groupSelect').value);
@@ -473,7 +555,7 @@ $('whenSeg').onclick = (e) => {
 };
 for (const id of ['delayN', 'delayUnit', 'atInput']) $(id).oninput = updateHint;
 $('repeat').onchange = () => {
-  if (!me.limits.recurring) { $('repeat').value = 'none'; setMsg('msg', 'Repeating posts are on the Pro plan.', 'warn'); }
+  if (!me.limits.recurring) { $('repeat').value = 'none'; showErr('msg', Object.assign(new Error('Repeating posts are on the Pro plan.'), { status: 402 })); }
 };
 
 $('submit').onclick = async () => {
@@ -491,19 +573,27 @@ $('submit').onclick = async () => {
   $('submit').disabled = true;
   setMsg('msg', when === 'now' ? 'Posting…' : 'Saving…');
   try {
-    const data = await api('posts', 'POST', { text: $('text').value, image: imageData, targets, when: w, repeat: $('repeat').value });
+    const poll = $('pollOn').checked ? { options: $('pollOpts').value.split('\n'), multi: $('pollMulti').checked } : undefined;
+    const data = await api('posts', 'POST', {
+      text: $('text').value, image: imageData, fileName, targets, when: w, repeat: $('repeat').value, poll,
+      track: !$('trackWrap').hidden && $('trackOn').checked,
+    });
     if (when === 'now') {
       data.sent ? setMsg('msg', 'Posted!', 'ok') : setMsg('msg', `Couldn't send yet: ${data.error}. It will retry every 5 minutes (see Scheduled).`, 'warn');
     } else {
       setMsg('msg', `${when === 'queue' ? 'Added to the queue' : 'Scheduled'} · goes out ${fmtWhen(data.eta)}`, 'ok');
     }
     $('text').value = '';
+    $('pollOn').checked = false;
+    $('pollOpts').value = '';
+    $('pollBox').hidden = true;
     saveDraft();
     clearImage();
     drawPosts(data);
     refreshMe();
+    loadLinks();
   } catch (err) {
-    setMsg('msg', err.message, 'err');
+    showErr('msg', err);
   } finally {
     $('submit').disabled = false;
   }
@@ -535,9 +625,11 @@ function summary(text) {
 }
 
 const cap1 = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+const REPEAT_LABEL = { daily: 'Daily', weekdays: 'Weekdays', every2: 'Every 2 days', weekly: 'Weekly', biweekly: 'Every 2 weeks', monthly: 'Monthly' };
 
 function postItem(p, i, list, isQueue) {
-  const repeat = p.repeat && p.repeat !== 'none' ? `<span class="chip c-violet">${icon('repeat')}${p.repeat === 'daily' ? 'Daily' : 'Weekly'}</span>` : '';
+  const repeat = p.repeat && p.repeat !== 'none' ? `<span class="chip c-violet">${icon('repeat')}${REPEAT_LABEL[p.repeat] ?? p.repeat}</span>` : '';
+  const kind = p.poll ? '<span class="chip c-teal">Poll</span>' : p.media === 'video' ? '<span class="chip c-gray">Video</span>' : p.media === 'file' ? `<span class="chip c-gray">${escapeHtml(p.fileName || 'PDF')}</span>` : '';
   const state = p.status === 'failed' ? `<span class="chip c-red">Failed</span><span class="err">${escapeHtml(p.error)}</span>`
     : p.error ? `<span class="chip c-amber">Retrying</span><span class="err">${escapeHtml(p.error)}</span>`
     : isQueue && me.queue.paused ? '<span class="chip c-gray">Paused</span>'
@@ -545,12 +637,13 @@ function postItem(p, i, list, isQueue) {
   return `<li data-id="${p.id}">
     ${p.hasImage ? `<img class="thumb" alt="" src="api/posts/${p.id}/image" loading="lazy" />` : '<div class="thumb">Aa</div>'}
     <div class="lbody">
-      <div class="lwhen">${isQueue ? `<span class="chip c-gray">#${i + 1}</span>` : ''}${state}${repeat}<span>→ ${escapeHtml(p.targets.join(', ') || 'nowhere')}</span></div>
+      <div class="lwhen">${isQueue ? `<span class="chip c-gray">#${i + 1}</span>` : ''}${state}${repeat}${kind}<span>→ ${escapeHtml(p.targets.join(', ') || 'nowhere')}</span></div>
       <div class="ltext">${escapeHtml(summary(p.text))}</div>
       <div class="lbtns">
         ${isQueue ? `<button type="button" data-act="up" ${i === 0 ? 'disabled' : ''} aria-label="Move up">↑</button>
         <button type="button" data-act="down" ${i === list.length - 1 ? 'disabled' : ''} aria-label="Move down">↓</button>` : ''}
         <button type="button" data-act="send">Send now</button>
+        <button type="button" data-act="copy" title="Copy this text into a new post">Copy</button>
         <button type="button" data-act="del" aria-label="Delete">Delete</button>
       </div>
     </div>
@@ -584,6 +677,122 @@ function drawPosts(data) {
     }).join('')
     : '<li class="empty">Nothing sent yet</li>';
   updateHint();
+  drawCalendar();
+}
+
+// ---------- Calendar ----------
+
+const calMonth = new Date();
+calMonth.setDate(1);
+function drawCalendar() {
+  const y = calMonth.getFullYear();
+  const m = calMonth.getMonth();
+  $('calTitle').textContent = calMonth.toLocaleDateString([], { month: 'long', year: 'numeric' });
+  const all = [...posts.scheduled.map((p) => ({ ...p, q: false })), ...posts.queue.map((p) => ({ ...p, q: true }))].filter((p) => p.eta);
+  const days = new Date(y, m + 1, 0).getDate();
+  const today = new Date();
+  const dow = [...Array(7).keys()].map((d) => `<div class="dow">${new Date(2024, 0, 7 + d).toLocaleDateString([], { weekday: 'short' })}</div>`).join('');
+  let cells = '<div class="day out"></div>'.repeat(new Date(y, m, 1).getDay());
+  for (let d = 1; d <= days; d++) {
+    const list = all.filter((p) => { const e = new Date(p.eta); return e.getFullYear() === y && e.getMonth() === m && e.getDate() === d; }).sort((a, b) => a.eta - b.eta);
+    const isToday = today.getFullYear() === y && today.getMonth() === m && today.getDate() === d;
+    cells += `<div class="day ${list.length ? 'has' : ''} ${isToday ? 'today' : ''}"><b>${d}</b>${
+      list.slice(0, 2).map((p) => `<span class="ev ${p.q ? 'q' : ''}" title="${escapeHtml(summary(p.text))}">${new Date(p.eta).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} ${escapeHtml(summary(p.text))}</span>`).join('')
+    }${list.length > 2 ? `<span class="more">+${list.length - 2} more</span>` : ''}</div>`;
+  }
+  $('cal').innerHTML = dow + cells;
+}
+$('calPrev').onclick = () => { calMonth.setMonth(calMonth.getMonth() - 1); drawCalendar(); };
+$('calNext').onclick = () => { calMonth.setMonth(calMonth.getMonth() + 1); drawCalendar(); };
+
+// ---------- Templates, AI writer, polls ----------
+
+function drawTemplates() {
+  const t = me.templates ?? [];
+  $('tplSelect').innerHTML = `<option value="">Templates${t.length ? ` (${t.length})` : ''}</option>` + t.map((x) => `<option value="${x.id}">${escapeHtml(x.name)}</option>`).join('');
+  $('tplSelect').disabled = !t.length;
+}
+$('tplSelect').onchange = () => {
+  const t = (me.templates ?? []).find((x) => x.id === $('tplSelect').value);
+  $('tplSelect').value = '';
+  if (!t) return;
+  $('text').value = t.text;
+  saveDraft();
+  renderPreview();
+};
+$('tplSave').onclick = async () => {
+  if (!$('text').value.trim()) return setMsg('msg', 'Write the text to save first', 'err');
+  const name = prompt('Name this template:', $('text').value.trim().split('\n')[0].slice(0, 40));
+  if (name === null) return;
+  try { me = (await api('templates', 'POST', { name, text: $('text').value })).user; drawTemplates(); setMsg('msg', 'Template saved', 'ok'); }
+  catch (err) { showErr('msg', err); }
+};
+$('aiBtn').onclick = () => {
+  $('aiBox').hidden = !$('aiBox').hidden;
+  if (!$('aiTone').options.length) $('aiTone').innerHTML = (cfg.aiTones ?? []).map((x) => `<option value="${x}">${cap1(x)}</option>`).join('');
+  if (!$('aiBox').hidden) $('aiPrompt').focus();
+};
+$('aiGo').onclick = async () => {
+  $('aiGo').disabled = true;
+  setMsg('msg', 'Writing…');
+  try {
+    $('text').value = (await api('ai/caption', 'POST', { prompt: $('aiPrompt').value, tone: $('aiTone').value })).text;
+    saveDraft();
+    renderPreview();
+    setMsg('msg', 'Written. Edit it as you like.', 'ok');
+  } catch (err) { showErr('msg', err); } finally { $('aiGo').disabled = false; }
+};
+$('aiPrompt').onkeydown = (e) => { if (e.key === 'Enter') $('aiGo').click(); };
+$('pollOn').onchange = () => { $('pollBox').hidden = !$('pollOn').checked; renderPreview(); };
+$('pollOpts').oninput = renderPreview;
+
+// ---------- Bulk add ----------
+
+$('bulkBtn').onclick = () => { $('bulkBox').hidden = !$('bulkBox').hidden; setMsg('bulkMsg', ''); };
+$('bulkCancel').onclick = () => { $('bulkBox').hidden = true; };
+$('bulkFile').onchange = async (e) => {
+  const f = e.target.files[0];
+  if (f) $('bulkText').value = (await f.text()).replace(/\r/g, '');
+  e.target.value = '';
+};
+$('bulkGo').onclick = async () => {
+  const targets = [...selected].filter((id) => me.targets.some((t) => t.id === id));
+  if (!targets.length) return setMsg('bulkMsg', 'Tick where to post under “Send to” first', 'err');
+  const items = [];
+  for (const [i, raw] of $('bulkText').value.split('\n').entries()) {
+    const line = raw.trim().replace(/^"(.*)"$/, '$1');
+    if (!line) continue;
+    const m = /^(\d{4}-\d{2}-\d{2})[ T](\d{1,2}:\d{2})\s*[|,;]\s*(.+)$/.exec(line);
+    if (!m) { items.push({ text: line.replace(/\\n/g, '\n') }); continue; }
+    const at = new Date(`${m[1]}T${m[2].padStart(5, '0')}`).getTime();
+    if (!Number.isFinite(at)) return setMsg('bulkMsg', `Line ${i + 1}: that date isn’t valid`, 'err');
+    items.push({ text: m[3].replace(/^"(.*)"$/, '$1').replace(/\\n/g, '\n'), at });
+  }
+  if (!items.length) return setMsg('bulkMsg', 'Nothing to add', 'err');
+  $('bulkGo').disabled = true;
+  try {
+    const data = await api('posts/bulk', 'POST', { items, targets });
+    drawPosts(data);
+    $('bulkText').value = '';
+    $('bulkBox').hidden = true;
+    setMsg('msg', `Added ${data.added} post${data.added === 1 ? '' : 's'}`, 'ok');
+    refreshMe();
+  } catch (err) { showErr('bulkMsg', err); } finally { $('bulkGo').disabled = false; }
+};
+
+// ---------- Link clicks ----------
+
+async function loadLinks() {
+  try {
+    const d = await api('links');
+    $('linksCard').hidden = !d.links.length;
+    $('linksTotal').textContent = `${d.total} click${d.total === 1 ? '' : 's'}`;
+    $('bestHours').textContent = d.bestHours.length
+      ? `Your audience clicks most around ${d.bestHours.map(fmtHour).join(', ')}. Try scheduling then.`
+      : 'After 10 clicks, this shows the hours your audience is most active.';
+    $('linksList').innerHTML = d.links.slice(0, 8).map((l) => `<li class="mid"><span class="count-pill" style="margin:0">${l.clicks}</span>
+      <div class="lbody"><div class="ltext" style="margin:0">${escapeHtml(l.url.replace(/^https?:\/\//, ''))}</div><div class="lwhen" style="margin-top:3px">${escapeHtml(summary(l.label))}</div></div></li>`).join('');
+  } catch {}
 }
 
 async function loadPosts() {
@@ -595,6 +804,11 @@ async function postAction(e) {
   if (!btn) return;
   const id = btn.closest('li').dataset.id;
   const act = btn.dataset.act;
+  if (act === 'copy') {
+    const p = [...posts.scheduled, ...posts.queue].find((x) => x.id === id);
+    if (p) { $('text').value = p.text; saveDraft(); renderPreview(); window.scrollTo({ top: 0, behavior: 'smooth' }); $('text').focus(); }
+    return;
+  }
   if (act === 'del' && !confirm('Delete this post?')) return;
   if (act === 'send' && !confirm('Send this post right now?')) return;
   btn.disabled = true;
@@ -735,32 +949,100 @@ function drawAccount() {
   for (const btn of $('pTheme').querySelectorAll('button')) btn.setAttribute('aria-pressed', String(btn.dataset.theme === (prefs.theme ?? 'system')));
   if (section === 'security') loadSessions();
 
+  drawPosting();
+  $('refLink').value = `${location.origin}${location.pathname}?ref=${me.referral.code}`;
+  $('refTiles').innerHTML = tile('Friends signed up', String(me.referral.signups)) + tile('Upgraded', String(me.referral.paid)) + tile('Free months earned', String(me.referral.paid));
+  $('refNote').textContent = me.proUntil ? `You have free Pro until ${fmtDate(me.proUntil)}.`
+    : cfg.billingEnabled ? 'When someone signs up with your link and upgrades, you get 30 days of Pro free.' : 'Rewards start once paid plans are switched on.';
+
   $('billingCard').hidden = false;
-  const fmt = planFeatures;
   if (!cfg.billingEnabled) {
     $('planInfo').innerHTML = `<div class="beta"><span class="t-ic">${icon('star')}</span><div>
       <b>Everything is unlocked, free,</b> while ${escapeHtml(cfg.appName)} is in beta.<br>
       <span class="muted">This month: ${me.usage.created} post${me.usage.created === 1 ? '' : 's'}.</span></div></div>`;
     $('plans').innerHTML = '';
-    $('upgrade').hidden = $('manageBilling').hidden = true;
+    $('planInterval').hidden = $('manageBilling').hidden = true;
     return;
   }
   const pct = Math.min(100, Math.round((me.usage.created / me.limits.postsPerMonth) * 100));
-  $('planInfo').innerHTML = `You're on <b>${escapeHtml(me.limits.label)}</b>${me.subscription && me.plan === 'pro' ? ` <span class="muted">(${escapeHtml(me.subscription.replace('_', ' '))})</span>` : ''}.
+  const note = me.billing ? `billed ${me.billing.interval === 'year' ? 'yearly' : 'monthly'}${me.subscription === 'past_due' ? ' · payment failed, please update your card' : ''}`
+    : me.trialEndsAt ? `free trial until ${fmtDate(me.trialEndsAt)}` : me.proUntil ? `free until ${fmtDate(me.proUntil)}` : '';
+  $('planInfo').innerHTML = `You're on <b>${escapeHtml(me.limits.label)}</b>${note ? ` <span class="muted">(${escapeHtml(note)})</span>` : ''}.
     <div class="usage"><div class="usage-bar"><span style="width:${pct}%"></span></div>
     <span class="muted">${me.usage.created} of ${me.limits.postsPerMonth.toLocaleString()} posts used this month</span></div>`;
-  $('plans').innerHTML = Object.entries(cfg.plans).map(([id, p]) => `<div class="plan ${id === me.plan ? 'current' : id === 'pro' ? 'featured' : ''}">
-      <h3>${escapeHtml(p.label)} ${id === me.plan ? '<span class="badge">Current</span>' : id === 'pro' ? '<span class="badge pro">Best</span>' : ''}</h3>
-      <div class="price">${id === 'pro' ? escapeHtml(cfg.proPriceLabel) : 'Free forever'}</div>${fmt(p)}</div>`).join('');
-  $('upgrade').hidden = me.plan === 'pro';
+  const anyYearly = cfg.yearly?.pro || cfg.yearly?.business;
+  $('planInterval').hidden = !anyYearly || Boolean(me.billing);
+  for (const b of $('planInterval').querySelectorAll('button')) b.setAttribute('aria-pressed', String(b.dataset.interval === planInterval));
+  const current = me.billing?.plan ?? (me.paid ? null : 'free');
+  $('plans').innerHTML = Object.entries(cfg.plans).map(([id, p]) => {
+    const yearly = planInterval === 'year' && cfg.yearly?.[id];
+    const price = id === 'free' ? 'Free forever' : cfg.priceLabels[id][yearly ? 'year' : 'month'];
+    const button = id === 'free' || me.billing ? '' : `<button class="btn ${id === 'pro' ? 'pro' : 'ghost'}" type="button" data-plan="${id}" data-interval="${yearly ? 'year' : 'month'}">Choose ${escapeHtml(p.label)}</button>`;
+    return `<div class="plan ${id === current ? 'current' : id === 'pro' ? 'featured' : ''}">
+      <h3>${escapeHtml(p.label)} ${id === current ? '<span class="badge">Current</span>' : id === 'pro' ? '<span class="badge pro">Most popular</span>' : ''}</h3>
+      <div class="price">${escapeHtml(price)}</div>${planFeatures(p, id !== 'free')}${button}</div>`;
+  }).join('');
   $('manageBilling').hidden = !me.canManageBilling;
 }
 
-$('upgrade').onclick = async () => {
-  $('upgrade').disabled = true;
-  try { location.href = (await api('billing/checkout', 'POST')).url; }
-  catch (err) { setMsg('billingMsg', err.message, 'err'); $('upgrade').disabled = false; }
+let planInterval = 'month';
+$('planInterval').onclick = (e) => {
+  const b = e.target.closest('button[data-interval]');
+  if (!b) return;
+  planInterval = b.dataset.interval;
+  drawAccount();
 };
+$('plans').onclick = async (e) => {
+  const b = e.target.closest('button[data-plan]');
+  if (!b) return;
+  b.disabled = true;
+  try { location.href = (await api('billing/checkout', 'POST', { plan: b.dataset.plan, interval: b.dataset.interval })).url; }
+  catch (err) { setMsg('billingMsg', err.message, 'err'); b.disabled = false; }
+};
+$('refCopy').onclick = async () => {
+  $('refLink').select();
+  try { await navigator.clipboard.writeText($('refLink').value); } catch { document.execCommand('copy'); }
+  $('refCopy').textContent = 'Copied';
+  setTimeout(() => { $('refCopy').textContent = 'Copy'; }, 1500);
+};
+
+// Templates and feeds, on the Posting section.
+function drawPosting() {
+  const t = me.templates ?? [];
+  $('tplList').innerHTML = t.length
+    ? t.map((x) => `<li class="mid" data-id="${x.id}"><div class="lbody"><div class="ltext" style="margin:0">${escapeHtml(x.name)}</div><div class="lwhen" style="margin-top:3px">${escapeHtml(summary(x.text))}</div></div><div class="lbtns"><button type="button" data-act="del">Delete</button></div></li>`).join('')
+    : '<li class="empty">No templates yet. In the composer, write a post and press Save.</li>';
+  const f = me.feeds ?? [];
+  $('feedPro').hidden = !cfg.billingEnabled || me.paid;
+  $('feedList').innerHTML = f.map((x) => `<li class="mid" data-id="${x.id}"><div class="lbody"><div class="ltext" style="margin:0">${escapeHtml(x.url.replace(/^https?:\/\//, ''))}</div>
+    <div class="lwhen" style="margin-top:3px">→ ${escapeHtml(x.targets.map((id) => me.targets.find((y) => y.id === id)?.name).filter(Boolean).join(', ') || 'nowhere')}${x.error ? ` · <span class="err">${escapeHtml(x.error)}</span>` : ''}</div></div>
+    <div class="lbtns"><button type="button" data-act="del">Remove</button></div></li>`).join('');
+  const picked = new Set([...$('feedTargets').querySelectorAll('input:checked')].map((i) => i.value));
+  $('feedTargets').innerHTML = me.targets.length
+    ? me.targets.map((x) => `<label><input type="checkbox" value="${x.id}" ${picked.has(x.id) ? 'checked' : ''} /> ${escapeHtml(x.name)}</label>`).join('')
+    : '<div class="hint">Add a group or channel on the dashboard first.</div>';
+}
+async function removeItem(kind, e, msgId) {
+  const btn = e.target.closest('button[data-act="del"]');
+  if (!btn) return;
+  try { me = (await api(`${kind}/${btn.closest('li').dataset.id}`, 'DELETE')).user; drawMe(); drawAccount(); }
+  catch (err) { setMsg(msgId, err.message, 'err'); }
+}
+$('tplList').onclick = (e) => removeItem('templates', e, 'tplMsg');
+$('feedList').onclick = (e) => removeItem('feeds', e, 'feedMsg');
+$('feedAdd').onclick = async () => {
+  $('feedAdd').disabled = true;
+  setMsg('feedMsg', 'Checking the feed…');
+  try {
+    const targets = [...$('feedTargets').querySelectorAll('input:checked')].map((i) => i.value);
+    const data = await api('feeds', 'POST', { url: $('feedUrl').value, template: $('feedTpl').value, targets });
+    me = data.user;
+    $('feedUrl').value = '';
+    drawAccount();
+    setMsg('feedMsg', `Connected. Found ${data.found} existing item${data.found === 1 ? '' : 's'}; new ones will be queued.`, 'ok');
+  } catch (err) { showErr('feedMsg', err); } finally { $('feedAdd').disabled = false; }
+};
+
 $('manageBilling').onclick = async () => {
   try { location.href = (await api('billing/portal', 'POST')).url; }
   catch (err) { setMsg('billingMsg', err.message, 'err'); }
@@ -856,7 +1138,11 @@ async function loadAdmin() {
       tile('Accounts', stats.accounts.toLocaleString(), `${stats.newThisWeek} new this week`) +
       tile('Active this week', stats.activeThisWeek.toLocaleString(), `${stats.linked} with WhatsApp linked`) +
       tile('Posts this month', stats.postsThisMonth.toLocaleString(), `${stats.waiting} waiting to send`) +
-      (billingEnabled ? tile('Paying', stats.paying.toLocaleString(), `${stats.pro} on Pro in total`) : '');
+      (billingEnabled ? tile('Monthly revenue', `$${stats.mrr.toLocaleString()}`, `${stats.paying} paying · ${stats.conversion}% of accounts`)
+        + tile('On trial', stats.trials.toLocaleString(), `${stats.pro} with paid features`)
+        + tile('At risk', (stats.pastDue + stats.canceled).toLocaleString(), `${stats.pastDue} failed payment · ${stats.canceled} cancelled`) : '');
+    const max = Math.max(1, ...stats.signupsByWeek);
+    $('adminChart').innerHTML = stats.signupsByWeek.map((n, i) => `<div><span>${n}</span><i style="height:${Math.round((n / max) * 70)}px"></i><span>${i === 7 ? 'now' : `-${7 - i}w`}</span></div>`).join('');
     drawAdmin();
   } catch (err) { setMsg('adminMsg', err.message, 'err'); }
 }
@@ -865,7 +1151,7 @@ function drawAdmin() {
   const q = $('adminSearch').value.trim().toLowerCase();
   const f = $('adminFilter').value;
   const match = {
-    all: () => true, admin: (u) => u.isAdmin, pro: (u) => u.plan === 'pro', free: (u) => u.plan !== 'pro',
+    all: () => true, admin: (u) => u.isAdmin, pro: (u) => u.plan !== 'free', free: (u) => u.plan === 'free',
     linked: (u) => u.whatsapp === 'connected', disabled: (u) => u.disabled,
   }[f];
   const users = adminUsers.filter((u) => match(u) && (!q || u.email.toLowerCase().includes(q) || (u.name || '').toLowerCase().includes(q)));
@@ -874,10 +1160,11 @@ function drawAdmin() {
     (users.map((u) => `<tr data-id="${u.id}" data-email="${escapeHtml(u.email)}">
       <td><b>${escapeHtml(u.email)}</b>${u.isYou ? ' <span class="chip c-gray">You</span>' : ''}${u.isAdmin ? ' <span class="chip c-green">Admin</span>' : ''}${u.disabled ? ' <span class="chip c-red">Disabled</span>' : ''}<br>
         <span class="muted">${escapeHtml(u.name || 'No name')} · joined ${fmtDate(u.createdAt)}${u.lastLoginAt ? ` · seen ${escapeHtml(ago(u.lastLoginAt))}` : ''}</span></td>
-      <td><span class="chip ${u.plan === 'pro' ? 'c-violet' : 'c-gray'}">${u.plan === 'pro' ? 'Pro' : 'Free'}</span>${u.subscription ? ` <span class="muted">${escapeHtml(u.subscription)}</span>` : ''}<br>
+      <td><span class="chip ${u.plan !== 'free' ? 'c-violet' : 'c-gray'}">${cap1(u.plan)}</span>${u.trialEndsAt ? ' <span class="chip c-amber">Trial</span>' : ''}${u.subscription ? ` <span class="muted">${escapeHtml(u.subscription)}</span>` : ''}<br>
         <select class="inline" data-act="plan" aria-label="Plan override" style="margin-top:8px">
           <option value="" ${u.planOverride ? '' : 'selected'}>Automatic</option>
           <option value="pro" ${u.planOverride === 'pro' ? 'selected' : ''}>Give Pro</option>
+          <option value="business" ${u.planOverride === 'business' ? 'selected' : ''}>Give Business</option>
           <option value="free" ${u.planOverride === 'free' ? 'selected' : ''}>Force Free</option>
         </select></td>
       <td><span style="display:inline-flex;align-items:center;gap:8px;white-space:nowrap"><span class="dot ${waDot[u.whatsapp] || 'off'}"></span>${escapeHtml(cap1(u.whatsapp.replace('_', ' ')))}</span><br><span class="muted">${u.targets} place${u.targets === 1 ? '' : 's'}</span></td>
@@ -948,6 +1235,7 @@ try {
   me = (await api('me')).user;
   showApp();
 } catch {
-  setAuthTab(location.hash === '#/signup' && !!cfg.signupsOpen);
+  const reset = /^#\/reset\/([\w-]+)$/.exec(location.hash);
+  if (reset) { resetToken = reset[1]; setAuthMode('reset'); } else setAuthTab((location.hash === '#/signup' || !!refParam) && !!cfg.signupsOpen);
   showAuth();
 }

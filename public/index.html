@@ -76,6 +76,7 @@
       </div>
     </header>
 
+    <div class="promo" id="promo" hidden></div>
     <section class="hero" id="top">
       <div class="hero-copy">
         <span class="eyebrow"><span class="dot on"></span>Sends from your own WhatsApp number</span>
@@ -101,16 +102,27 @@
               <label for="aName">Name</label>
               <input type="text" id="aName" autocomplete="name" placeholder="Your name" />
             </div>
-            <label for="aEmail">Email</label>
-            <input type="email" id="aEmail" autocomplete="email" placeholder="you@example.com" required />
-            <label for="aPw">Password</label>
-            <input type="password" id="aPw" autocomplete="current-password" minlength="8" placeholder="At least 8 characters" required />
+            <div id="emailWrap">
+              <label for="aEmail">Email</label>
+              <input type="email" id="aEmail" autocomplete="email" placeholder="you@example.com" required />
+            </div>
+            <div id="pwWrap">
+              <label for="aPw" id="aPwLabel">Password</label>
+              <input type="password" id="aPw" autocomplete="current-password" minlength="8" placeholder="At least 8 characters" required />
+            </div>
+            <div class="forgot-row"><a href="#" id="forgotLink" hidden>Forgot password?</a><a href="#" id="backToLogin" hidden>Back to log in</a></div>
             <div class="row"><button class="btn primary wide lg" id="authBtn" type="submit">Log in</button></div>
             <div class="msg" id="authMsg" role="status"></div>
+            <p class="muted terms-note" id="termsNote" hidden>By creating an account you agree to the <a href="/terms">Terms</a> and <a href="/privacy">Privacy Policy</a>.</p>
           </form>
         </div>
         <p class="fineprint"><svg class="i"><use href="#i-lock"/></svg>Your WhatsApp is linked as a device on your own phone. Unlink it any time.</p>
       </div>
+    </section>
+
+    <section class="l-section demo" id="demo" hidden>
+      <div class="l-head"><h2>See it in action</h2></div>
+      <div class="video" id="demoFrame"></div>
     </section>
 
     <section class="l-section" id="features">
@@ -122,6 +134,9 @@
         <div class="f-card"><span class="f-ic"><svg class="i"><use href="#i-image"/></svg></span><h3>Text and images</h3><p>WhatsApp formatting with a live preview, so you see the post exactly as your audience will.</p></div>
         <div class="f-card"><span class="f-ic"><svg class="i"><use href="#i-repeat"/></svg></span><h3>Reliable sending</h3><p>If your phone is offline the post retries every five minutes, and never sends twice to the same place.</p></div>
         <div class="f-card"><span class="f-ic"><svg class="i"><use href="#i-lock"/></svg></span><h3>Your number, your account</h3><p>Posts come from your own number. Your account only ever sees your own posts.</p></div>
+        <div class="f-card"><span class="f-ic"><svg class="i"><use href="#i-grid"/></svg></span><h3>Bulk upload and feeds</h3><p>Paste a month of posts at once, or connect an RSS feed and let new items post themselves.</p></div>
+        <div class="f-card"><span class="f-ic"><svg class="i"><use href="#i-eye"/></svg></span><h3>Know what gets clicked</h3><p>Tracked links count clicks, and show which hours your audience is most active.</p></div>
+        <div class="f-card"><span class="f-ic"><svg class="i"><use href="#i-star"/></svg></span><h3>Polls, video, PDFs and templates</h3><p>More than text and images, with saved templates for the posts you send again and again.</p></div>
       </div>
     </section>
 
@@ -157,7 +172,7 @@
 
     <footer class="l-foot">
       <span class="brand"><span class="logo sm"><svg class="i"><use href="#i-send"/></svg></span><span id="footTitle">Auto Poster</span></span>
-      <span class="muted">Not affiliated with WhatsApp or Meta.</span>
+      <span class="muted"><a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · Not affiliated with WhatsApp or Meta.</span>
     </footer>
   </div>
 
@@ -183,6 +198,7 @@
       </div>
     </header>
     <div class="banner" id="banner" hidden><div id="bannerText"></div></div>
+    <div class="banner notice" id="trialBar" hidden><div><span id="trialText"></span> <a href="#/account/plan">See plans</a></div></div>
 
     <!-- Dashboard -->
     <main class="dash" id="dashView">
@@ -199,14 +215,34 @@
               <button type="button" data-wrap="_" title="Italic"><i>I</i></button>
               <button type="button" data-wrap="~" title="Strikethrough"><s>S</s></button>
               <button type="button" data-wrap="```" title="Monospace"><code>{ }</code></button>
+              <span class="tools-gap"></span>
+              <select id="tplSelect" class="inline" aria-label="Templates"></select>
+              <button type="button" id="tplSave" title="Save this text as a template">Save</button>
+              <button type="button" id="aiBtn" title="Write it for me" hidden>✨ AI</button>
             </div>
             <label for="text" hidden>Text</label>
             <textarea id="text" placeholder="What do you want to share? Use *bold*, _italic_ and ~strike~"></textarea>
           </div>
 
+          <div class="whenbox" id="aiBox" hidden>
+            <input type="text" id="aiPrompt" class="inline grow" placeholder="What is the post about? e.g. 20% off shoes this weekend" aria-label="What the post is about" />
+            <select id="aiTone" class="inline" aria-label="Tone"></select>
+            <button class="btn soft small" id="aiGo" type="button">Write it</button>
+          </div>
+
           <div class="drop" id="drop">
-            <input type="file" id="file" accept="image/jpeg,image/png,image/webp" aria-label="Image" />
-            <div id="dropInner"><span class="drop-ic"><svg class="i"><use href="#i-image"/></svg></span><span><b>Add an image</b> · tap, drop or paste<br><small>Optional · JPEG, PNG or WebP</small></span></div>
+            <input type="file" id="file" accept="image/jpeg,image/png,image/webp,video/mp4,application/pdf" aria-label="Attachment" />
+            <div id="dropInner"></div>
+          </div>
+
+          <div class="extras">
+            <label class="chk"><input type="checkbox" id="pollOn" /> Make it a poll</label>
+            <label class="chk" id="trackWrap" hidden><input type="checkbox" id="trackOn" /> Count link clicks <span class="badge pro" id="trackPro" hidden>Pro</span></label>
+          </div>
+          <div class="whenbox col" id="pollBox" hidden>
+            <span class="muted">The text above is the question. Options, one per line:</span>
+            <textarea id="pollOpts" style="min-height:92px" placeholder="Option 1&#10;Option 2" aria-label="Poll options"></textarea>
+            <label class="chk"><input type="checkbox" id="pollMulti" /> Allow more than one answer</label>
           </div>
 
           <div class="field-h">Send to</div>
@@ -232,7 +268,7 @@
             <svg class="i muted-i"><use href="#i-repeat"/></svg>
             <label for="repeat" style="margin:0">Repeat</label>
             <select id="repeat" class="inline">
-              <option value="none">Don't repeat</option><option value="daily">Every day</option><option value="weekly">Every week</option>
+              <option value="none">Don't repeat</option><option value="daily">Every day</option><option value="weekdays">Every weekday (Mon–Fri)</option><option value="every2">Every 2 days</option><option value="weekly">Every week</option><option value="biweekly">Every 2 weeks</option><option value="monthly">Every month</option>
             </select>
             <span class="badge pro" id="repeatPro" hidden>Pro</span>
           </div>
@@ -256,8 +292,29 @@
 
         <section class="card">
           <div class="card-h">
+            <span class="ic"><svg class="i"><use href="#i-grid"/></svg></span>
+            <div><h2>Calendar</h2><p id="calTitle"></p></div>
+            <div class="push cal-nav"><button class="btn ghost small" id="calPrev" type="button" aria-label="Previous month">‹</button><button class="btn ghost small" id="calNext" type="button" aria-label="Next month">›</button></div>
+          </div>
+          <div class="cal" id="cal"></div>
+        </section>
+
+        <section class="card">
+          <div class="card-h">
             <span class="ic"><svg class="i"><use href="#i-layers"/></svg></span>
             <div><h2>Queue</h2><p>One at a time, spaced out for you</p></div>
+            <button class="btn ghost small push" id="bulkBtn" type="button">Bulk add</button>
+          </div>
+          <div class="status-editor" id="bulkBox" hidden style="margin:0 0 12px">
+            <b>Add many posts at once</b>
+            <p class="hint" style="margin-top:4px">One post per line. They join the queue, going to the places ticked under “Send to”. To schedule a line instead, start it with a date and time: <code>2026-12-24 09:00 | Merry Christmas!</code></p>
+            <textarea id="bulkText" style="min-height:130px" placeholder="First post&#10;Second post&#10;2026-12-24 09:00 | A scheduled post" aria-label="Posts, one per line"></textarea>
+            <div class="row">
+              <label class="btn ghost small filebtn">Load a .csv or .txt file<input type="file" id="bulkFile" accept=".csv,.txt,text/csv,text/plain" hidden /></label>
+              <button class="btn ghost small" id="bulkCancel" type="button">Cancel</button>
+              <button class="btn primary small" id="bulkGo" type="button">Add posts</button>
+            </div>
+            <div class="msg" id="bulkMsg" role="status"></div>
           </div>
           <div class="qsettings">
             <label>Send one <select id="qInterval" class="inline" aria-label="Interval"></select></label>
@@ -347,6 +404,16 @@
           <div class="count" id="count"></div>
         </section>
 
+        <section class="card" id="linksCard" hidden>
+          <div class="card-h">
+            <span class="ic"><svg class="i"><use href="#i-bolt"/></svg></span>
+            <div><h2>Link clicks</h2><p id="linksSub">From posts with “Count link clicks” on</p></div>
+            <span class="count-pill" id="linksTotal"></span>
+          </div>
+          <div class="hint" id="bestHours" style="margin:0 0 10px"></div>
+          <ul class="list" id="linksList"></ul>
+        </section>
+
         <section class="card">
           <div class="card-h">
             <span class="ic"><svg class="i"><use href="#i-history"/></svg></span>
@@ -367,6 +434,7 @@
           <a href="#/account/posting" data-sec="posting"><svg class="i"><use href="#i-pen"/></svg>Posting</a>
           <a href="#/account/appearance" data-sec="appearance"><svg class="i"><use href="#i-palette"/></svg>Appearance</a>
           <a href="#/account/plan" data-sec="plan"><svg class="i"><use href="#i-card"/></svg>Plan &amp; billing</a>
+          <a href="#/account/refer" data-sec="refer"><svg class="i"><use href="#i-star"/></svg>Refer a friend</a>
           <a href="#/account/security" data-sec="security"><svg class="i"><use href="#i-lock"/></svg>Security</a>
           <a href="#/account/data" data-sec="data"><svg class="i"><use href="#i-download"/></svg>Your data</a>
         </nav>
@@ -443,6 +511,26 @@
             </div>
             <div class="msg" id="postingMsg" role="status"></div>
           </section>
+          <section class="card">
+            <div class="card-h"><span class="ic"><svg class="i"><use href="#i-layers"/></svg></span><div><h2>Templates</h2><p>Saved posts you can reuse from the composer</p></div></div>
+            <ul class="list" id="tplList"></ul>
+            <div class="msg" id="tplMsg" role="status"></div>
+          </section>
+          <section class="card">
+            <div class="card-h"><span class="ic"><svg class="i"><use href="#i-repeat"/></svg></span><div><h2>Post from a feed <span class="badge pro" id="feedPro" hidden>Pro</span></h2><p>New items in an RSS feed are added to your queue automatically</p></div></div>
+            <ul class="list" id="feedList"></ul>
+            <label for="feedUrl">Feed address</label>
+            <input type="text" id="feedUrl" placeholder="https://example.com/feed.xml" />
+            <label for="feedTpl">Post text</label>
+            <textarea id="feedTpl" style="min-height:70px">{title}
+
+{link}</textarea>
+            <div class="field-h" style="margin-top:14px">Post to</div>
+            <div class="checks" id="feedTargets"></div>
+            <div class="row"><button class="btn primary" id="feedAdd" type="button">Connect feed</button></div>
+            <div class="hint">Checked every 15 minutes. Items already in the feed when you connect it are not posted.</div>
+            <div class="msg" id="feedMsg" role="status"></div>
+          </section>
         </div>
 
         <!-- Appearance -->
@@ -470,12 +558,27 @@
           <section class="card" id="billingCard">
             <div class="card-h"><span class="ic"><svg class="i"><use href="#i-card"/></svg></span><div><h2>Plan &amp; billing</h2><p>What your account can do</p></div></div>
             <div id="planInfo"></div>
+            <div class="seg" id="planInterval" role="group" aria-label="Billing period" hidden style="margin-top:16px">
+              <button type="button" data-interval="month" aria-pressed="true">Monthly</button>
+              <button type="button" data-interval="year" aria-pressed="false">Yearly · save more</button>
+            </div>
             <div class="plans" id="plans"></div>
             <div class="row">
               <button class="btn pro lg" id="upgrade" type="button" hidden>Upgrade to Pro</button>
               <button class="btn ghost" id="manageBilling" type="button" hidden>Manage billing</button>
             </div>
             <div class="msg" id="billingMsg" role="status"></div>
+          </section>
+        </div>
+
+        <!-- Refer -->
+        <div class="sec" data-sec="refer" hidden>
+          <section class="card">
+            <div class="card-h"><span class="ic"><svg class="i"><use href="#i-star"/></svg></span><div><h2>Refer a friend</h2><p>Get a free month of Pro for every friend who upgrades</p></div></div>
+            <label for="refLink">Your link</label>
+            <div class="inline-row"><input type="text" id="refLink" readonly /><button class="btn soft small" id="refCopy" type="button">Copy</button></div>
+            <div class="tiles" id="refTiles" style="margin-top:16px"></div>
+            <div class="hint" id="refNote"></div>
           </section>
         </div>
 
@@ -522,8 +625,13 @@
       <div class="page-h">
         <h1>Admin</h1>
         <p id="adminSummary"></p>
+        <div class="row" style="margin-top:12px"><a class="btn ghost small" href="api/admin/backup" download>Download a backup</a></div>
       </div>
       <div class="tiles" id="adminTiles"></div>
+      <section class="card">
+        <div class="card-h"><span class="ic"><svg class="i"><use href="#i-users"/></svg></span><div><h2>New accounts</h2><p>Per week, last 8 weeks</p></div></div>
+        <div class="bars" id="adminChart"></div>
+      </section>
       <section class="card">
         <div class="toolbar">
           <div class="search"><svg class="i"><use href="#i-search"/></svg><input type="text" id="adminSearch" placeholder="Search by email or name" aria-label="Search accounts" /></div>
